@@ -1,0 +1,596 @@
+---
+title: Error Handling
+description: Handle errors gracefully in state machines
+---
+
+Proper error handling is critical for building robust applications. XState provides several patterns for catching, handling, and recovering from errors in your state machines.
+
+## Error States
+
+The simplest approach is to model errors as explicit states:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const fetchMachine = createMachine({
+  initial: 'idle',
+  context: {
+    data: null,
+    error: null
+  },
+  states: {
+    idle: {
+      on: { FETCH: 'loading' }
+    },
+    loading: {
+      on: {
+        SUCCESS: {
+          target: 'success',
+          actions: assign({
+            data: ({ event }) => event.data,
+            error: null
+          })
+        },
+        ERROR: {
+          target: 'error',
+          actions: assign({
+            error: ({ event }) => event.error,
+            data: null
+          })
+        }
+      }
+    },
+    success: {
+      on: { REFETCH: 'loading' }
+    },
+    error: {
+      entry: ({ context }) => {
+        console.error('Failed to fetch:', context.error);
+      },
+      on: {
+        RETRY: 'loading',
+        CANCEL: 'idle'
+      }
+    }
+  }
+});
+```
+
+## Invoked Promises with Error Handling
+
+When invoking promises, use `onError` to handle rejections:
+
+```typescript
+import { createMachine, createActor, fromPromise } from 'xstate';
+
+const fetchUser = fromPromise(async ({ input }) => {
+  const response = await fetch(`/api/users/${input.userId}`);
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error: ${response.status}`);
+  }
+  
+  return response.json();
+});
+
+const userMachine = createMachine({
+  initial: 'idle',
+  context: {
+    user: null,
+    errorMessage: null
+  },
+  states: {
+    idle: {
+      on: {
+        LOAD_USER: 'loading'
+      }
+    },
+    loading: {
+      invoke: {
+        src: fetchUser,
+        input: ({ event }) => ({
+          userId: event.userId
+        }),
+        onDone: {
+          target: 'success',
+          actions: assign({
+            user: ({ event }) => event.output,
+            errorMessage: null
+          })
+        },
+        onError: {
+          target: 'error',
+          actions: assign({
+            errorMessage: ({ event }) => event.error.message,
+            user: null
+          })
+        }
+      }
+    },
+    success: {
+      on: { RELOAD: 'loading' }
+    },
+    error: {
+      entry: ({ context }) => {
+        console.error('Failed to load user:', context.errorMessage);
+      },
+      on: {
+        RETRY: 'loading',
+        CANCEL: 'idle'
+      }
+    }
+  }
+});
+```
+
+## Error Events
+
+XState emits error events that you can handle:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  initial: 'active',
+  states: {
+    active: {
+      invoke: {
+        id: 'myActor',
+        src: 'someActor',
+        onError: {
+          target: 'failed',
+          actions: ({ event }) => {
+            // event.type is 'xstate.error.actor.myActor'
+            // event.error contains the error
+            console.error('Actor failed:', event.error);
+          }
+        }
+      }
+    },
+    failed: {}
+  }
+});
+
+// Error event structure:
+// {
+//   type: 'xstate.error.actor.myActor',
+//   error: Error,
+//   actorId: 'myActor'
+// }
+```
+
+## Try-Catch Pattern
+
+For synchronous errors in actions, use try-catch within the action:
+
+```typescript
+import { createMachine, assign } from 'xstate';
+
+const machine = createMachine({
+  context: {
+    data: null,
+    error: null
+  },
+  entry: assign(({ context }) => {
+    try {
+      const parsed = JSON.parse(context.data);
+      return { data: parsed, error: null };
+    } catch (error) {
+      return {
+        data: null,
+        error: error instanceof Error ? error.message : 'Parse error'
+      };
+    }
+  })
+});
+```
+
+<Warning>
+Actions should be pure and side-effect free when possible. For async operations that might fail, prefer using invoked actors with `onError` handlers.
+</Warning>
+
+## Retry Logic
+
+Implement retry logic with exponential backoff:
+
+```typescript
+import { setup, assign, createActor } from 'xstate';
+
+const retryMachine = setup({
+  guards: {
+    canRetry: ({ context }) => context.retries < context.maxRetries
+  },
+  delays: {
+    BACKOFF: ({ context }) => {
+      return Math.min(1000 * Math.pow(2, context.retries), 10000);
+    }
+  },
+  actors: {
+    fetchData: fromPromise(async () => {
+      const response = await fetch('/api/data');
+      if (!response.ok) throw new Error('Fetch failed');
+      return response.json();
+    })
+  }
+}).createMachine({
+  initial: 'idle',
+  context: {
+    retries: 0,
+    maxRetries: 3,
+    data: null,
+    error: null
+  },
+  states: {
+    idle: {
+      on: { FETCH: 'loading' }
+    },
+    loading: {
+      entry: assign({ error: null }),
+      invoke: {
+        src: 'fetchData',
+        onDone: {
+          target: 'success',
+          actions: assign({
+            data: ({ event }) => event.output,
+            retries: 0
+          })
+        },
+        onError: 'error'
+      }
+    },
+    error: {
+      entry: assign({
+        retries: ({ context }) => context.retries + 1,
+        error: ({ event }) => event.error
+      }),
+      always: [
+        {
+          guard: 'canRetry',
+          target: 'retrying'
+        },
+        { target: 'failed' }
+      ]
+    },
+    retrying: {
+      entry: ({ context }) => {
+        console.log(`Retry attempt ${context.retries}/${context.maxRetries}`);
+      },
+      after: {
+        BACKOFF: 'loading'
+      },
+      on: {
+        CANCEL: 'failed'
+      }
+    },
+    success: {
+      entry: () => console.log('Data loaded successfully'),
+      on: { REFETCH: 'loading' }
+    },
+    failed: {
+      entry: ({ context }) => {
+        console.error('Failed after', context.retries, 'retries');
+      },
+      on: {
+        RETRY: {
+          target: 'loading',
+          actions: assign({ retries: 0 })
+        }
+      }
+    }
+  }
+});
+```
+
+## Multiple Error Types
+
+Handle different error types with guards:
+
+```typescript
+import { setup, assign } from 'xstate';
+
+const apiMachine = setup({
+  guards: {
+    isNetworkError: ({ event }) => {
+      return event.error.message.includes('network');
+    },
+    isAuthError: ({ event }) => {
+      return event.error.status === 401;
+    },
+    isServerError: ({ event }) => {
+      return event.error.status >= 500;
+    }
+  }
+}).createMachine({
+  initial: 'loading',
+  states: {
+    loading: {
+      invoke: {
+        src: 'fetchData',
+        onError: [
+          {
+            guard: 'isAuthError',
+            target: 'unauthorized',
+            actions: () => console.log('Authentication required')
+          },
+          {
+            guard: 'isNetworkError',
+            target: 'offline',
+            actions: () => console.log('Network error')
+          },
+          {
+            guard: 'isServerError',
+            target: 'serverError',
+            actions: () => console.log('Server error')
+          },
+          {
+            target: 'error',
+            actions: () => console.log('Unknown error')
+          }
+        ]
+      }
+    },
+    unauthorized: {
+      on: { LOGIN: 'loading' }
+    },
+    offline: {
+      on: { RETRY: 'loading' }
+    },
+    serverError: {
+      on: { RETRY: 'loading' }
+    },
+    error: {
+      on: { RETRY: 'loading' }
+    }
+  }
+});
+```
+
+<Steps>
+
+### Error Handling Best Practices
+
+1. **Model errors as states**: Make errors explicit in your state machine
+2. **Provide recovery paths**: Always offer a way to retry or recover
+3. **Store error details**: Keep error messages in context for debugging
+4. **Different error types**: Handle different errors differently
+5. **Exponential backoff**: Don't hammer failing services
+6. **User feedback**: Update UI to show meaningful error messages
+
+</Steps>
+
+## Graceful Degradation
+
+Provide fallback behavior when features fail:
+
+```typescript
+import { createMachine, assign } from 'xstate';
+
+const featureMachine = createMachine({
+  type: 'parallel',
+  states: {
+    mainFeature: {
+      initial: 'loading',
+      states: {
+        loading: {
+          invoke: {
+            src: 'loadMainFeature',
+            onDone: 'ready',
+            onError: 'unavailable'
+          }
+        },
+        ready: {},
+        unavailable: {
+          entry: () => console.log('Main feature unavailable, using basic mode')
+        }
+      }
+    },
+    enhancedFeature: {
+      initial: 'loading',
+      states: {
+        loading: {
+          invoke: {
+            src: 'loadEnhancedFeature',
+            onDone: 'ready',
+            onError: 'unavailable'
+          }
+        },
+        ready: {},
+        unavailable: {
+          entry: () => console.log('Enhanced feature unavailable, continuing without it')
+        }
+      }
+    }
+  }
+});
+```
+
+## Circuit Breaker Pattern
+
+Prevent cascading failures with a circuit breaker:
+
+```typescript
+import { setup, assign } from 'xstate';
+
+const circuitBreakerMachine = setup({
+  guards: {
+    tooManyFailures: ({ context }) => context.failures >= context.threshold,
+    canRetry: ({ context }) => context.failures < context.threshold
+  },
+  delays: {
+    RESET_TIMEOUT: 30000 // 30 seconds
+  }
+}).createMachine({
+  initial: 'closed',
+  context: {
+    failures: 0,
+    threshold: 5,
+    lastError: null
+  },
+  states: {
+    closed: {
+      // Normal operation
+      on: {
+        REQUEST: 'calling'
+      }
+    },
+    calling: {
+      invoke: {
+        src: 'makeRequest',
+        onDone: {
+          target: 'closed',
+          actions: assign({ failures: 0 })
+        },
+        onError: [
+          {
+            guard: 'tooManyFailures',
+            target: 'open',
+            actions: assign({
+              failures: ({ context }) => context.failures + 1,
+              lastError: ({ event }) => event.error
+            })
+          },
+          {
+            target: 'closed',
+            actions: assign({
+              failures: ({ context }) => context.failures + 1,
+              lastError: ({ event }) => event.error
+            })
+          }
+        ]
+      }
+    },
+    open: {
+      // Circuit breaker is open - reject all requests
+      entry: () => console.log('Circuit breaker opened'),
+      on: {
+        REQUEST: {
+          actions: () => console.error('Circuit breaker is open - request rejected')
+        }
+      },
+      after: {
+        RESET_TIMEOUT: 'halfOpen'
+      }
+    },
+    halfOpen: {
+      // Testing if service has recovered
+      entry: () => console.log('Circuit breaker half-open - testing'),
+      on: {
+        REQUEST: 'calling'
+      },
+      after: {
+        5000: 'closed' // Auto-close if no requests
+      }
+    }
+  }
+});
+```
+
+## Error Boundaries
+
+Create error boundaries to contain failures:
+
+```typescript
+import { createMachine, assign } from 'xstate';
+
+const appMachine = createMachine({
+  type: 'parallel',
+  states: {
+    featureA: {
+      initial: 'active',
+      states: {
+        active: {
+          invoke: {
+            src: 'featureALogic',
+            onError: 'error'
+          }
+        },
+        error: {
+          // Feature A failed, but app continues
+          entry: () => console.log('Feature A failed'),
+          on: { RETRY_A: 'active' }
+        }
+      }
+    },
+    featureB: {
+      initial: 'active',
+      states: {
+        active: {
+          invoke: {
+            src: 'featureBLogic',
+            onError: 'error'
+          }
+        },
+        error: {
+          // Feature B failed independently
+          entry: () => console.log('Feature B failed'),
+          on: { RETRY_B: 'active' }
+        }
+      }
+    }
+  }
+});
+
+// Features fail independently without affecting each other
+```
+
+<Tip>
+Treat errors as first-class citizens in your state machines. Modeling error states explicitly makes your application more resilient and easier to reason about.
+</Tip>
+
+## Logging and Monitoring
+
+Log errors for debugging and monitoring:
+
+```typescript
+import { createMachine, assign } from 'xstate';
+
+const monitoredMachine = createMachine({
+  initial: 'active',
+  context: {
+    errorLog: []
+  },
+  states: {
+    active: {
+      invoke: {
+        src: 'riskyOperation',
+        onError: {
+          target: 'error',
+          actions: assign({
+            errorLog: ({ context, event }) => [
+              ...context.errorLog,
+              {
+                timestamp: Date.now(),
+                error: event.error.message,
+                stack: event.error.stack
+              }
+            ]
+          })
+        }
+      }
+    },
+    error: {
+      entry: ({ context }) => {
+        // Send to monitoring service
+        const latestError = context.errorLog[context.errorLog.length - 1];
+        reportError(latestError);
+      },
+      on: { RETRY: 'active' }
+    }
+  }
+});
+
+function reportError(error: any) {
+  // Send to Sentry, LogRocket, etc.
+  console.error('Error reported:', error);
+}
+```
+
+## Best Practices
+
+1. **Explicit error states**: Model errors as explicit states, not just context flags
+2. **Always provide recovery**: Give users a way to retry or recover from errors
+3. **Different error handling**: Handle different error types appropriately
+4. **Fail gracefully**: Degrade functionality rather than crashing entirely
+5. **Log comprehensively**: Capture enough information to diagnose issues
+6. **Test error paths**: Write tests for error scenarios, not just happy paths
+7. **User-friendly messages**: Store technical details but show helpful messages to users

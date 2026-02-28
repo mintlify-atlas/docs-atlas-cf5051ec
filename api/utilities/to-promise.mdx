@@ -1,0 +1,198 @@
+---
+title: toPromise
+description: Convert an actor to a promise that resolves with its output
+---
+
+Returns a promise that resolves to the `output` of the actor when it is done (reaches a final state).
+
+## Signature
+
+```typescript
+function toPromise<T extends AnyActorRef>(
+  actor: T
+): Promise<OutputFrom<T>>
+```
+
+## Parameters
+
+<ParamField path="actor" type="AnyActorRef" required>
+  The actor to convert to a promise. The promise will resolve when this actor reaches a final state.
+</ParamField>
+
+## Returns
+
+<ParamField path="returns" type="Promise<OutputFrom<T>>">
+  A promise that resolves with the actor's output when the actor completes. The promise rejects if the actor emits an error.
+</ParamField>
+
+## Usage
+
+### Basic usage
+
+```typescript
+import { createMachine, createActor, toPromise } from 'xstate';
+
+const machine = createMachine({
+  initial: 'loading',
+  states: {
+    loading: {
+      after: {
+        1000: 'success'
+      }
+    },
+    success: {
+      type: 'final'
+    }
+  },
+  output: {
+    count: 42
+  }
+});
+
+const actor = createActor(machine);
+actor.start();
+
+const output = await toPromise(actor);
+
+console.log(output);
+// logs { count: 42 }
+```
+
+### With dynamic output
+
+```typescript
+import { createMachine, createActor, toPromise } from 'xstate';
+
+const fetchMachine = createMachine({
+  types: {} as {
+    context: { data: string | null; error: string | null };
+    output: { data: string; timestamp: number };
+  },
+  initial: 'fetching',
+  context: {
+    data: null,
+    error: null
+  },
+  states: {
+    fetching: {
+      invoke: {
+        src: 'fetchData',
+        onDone: {
+          target: 'success',
+          actions: assign({
+            data: ({ event }) => event.output
+          })
+        },
+        onError: {
+          target: 'failure',
+          actions: assign({
+            error: ({ event }) => event.error
+          })
+        }
+      }
+    },
+    success: {
+      type: 'final'
+    },
+    failure: {
+      type: 'final'
+    }
+  },
+  output: ({ context }) => ({
+    data: context.data!,
+    timestamp: Date.now()
+  })
+});
+
+const actor = createActor(fetchMachine, {
+  input: { url: 'https://api.example.com/data' }
+});
+
+actor.start();
+
+const result = await toPromise(actor);
+console.log(result.data, result.timestamp);
+```
+
+### Handling errors
+
+```typescript
+import { createMachine, createActor, toPromise } from 'xstate';
+
+const machine = createMachine({
+  initial: 'active',
+  states: {
+    active: {
+      on: {
+        ERROR: 'failed'
+      }
+    },
+    failed: {
+      type: 'final'
+    }
+  },
+  output: { result: 'success' }
+});
+
+const actor = createActor(machine);
+actor.start();
+
+try {
+  const output = await toPromise(actor);
+  console.log('Success:', output);
+} catch (error) {
+  console.error('Actor failed:', error);
+}
+```
+
+### Combining multiple actors
+
+```typescript
+import { createMachine, createActor, toPromise } from 'xstate';
+
+const taskMachine = createMachine({
+  initial: 'running',
+  states: {
+    running: {
+      after: {
+        1000: 'done'
+      }
+    },
+    done: {
+      type: 'final'
+    }
+  },
+  output: ({ self }) => `Task ${self.id} complete`
+});
+
+const actor1 = createActor(taskMachine, { id: '1' });
+const actor2 = createActor(taskMachine, { id: '2' });
+const actor3 = createActor(taskMachine, { id: '3' });
+
+actor1.start();
+actor2.start();
+actor3.start();
+
+const results = await Promise.all([
+  toPromise(actor1),
+  toPromise(actor2),
+  toPromise(actor3)
+]);
+
+console.log(results);
+// logs ['Task 1 complete', 'Task 2 complete', 'Task 3 complete']
+```
+
+## Notes
+
+<Note>
+  The actor must have a final state for the promise to resolve. If the actor never reaches a final state, the promise will never resolve.
+</Note>
+
+<Note>
+  The returned promise subscribes to the actor immediately. The subscription is automatically cleaned up when the actor completes or errors.
+</Note>
+
+<Tip>
+  Use `toPromise` to integrate actor-based workflows with promise-based APIs, or to await actor completion in async functions.
+</Tip>

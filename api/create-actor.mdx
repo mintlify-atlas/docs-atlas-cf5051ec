@@ -1,0 +1,311 @@
+---
+title: createActor
+description: API reference for the createActor function
+---
+
+Creates a new actor instance for the given actor logic with the provided options.
+
+When you create an actor from actor logic via `createActor(logic)`, you implicitly create an actor system where the created actor is the root actor. Any actors spawned from this root actor and its descendants are part of that actor system.
+
+## Signature
+
+```typescript
+function createActor<TLogic extends AnyActorLogic>(
+  logic: TLogic,
+  options?: ActorOptions<TLogic>
+): Actor<TLogic>
+```
+
+## Parameters
+
+<ParamField path="logic" type="ActorLogic" required>
+  The actor logic to create an actor from.
+
+  Actor logic can be:
+  - A state machine created with `createMachine()`
+  - Promise logic created with `fromPromise()`
+  - Callback logic created with `fromCallback()`
+  - Observable logic created with `fromObservable()` or `fromEventObservable()`
+  - Transition logic created with `fromTransition()`
+</ParamField>
+
+<ParamField path="options" type="ActorOptions">
+  Optional configuration for the actor.
+
+  <Expandable title="properties">
+    <ParamField path="input" type="InputFrom<TLogic>">
+      The input data to pass to the actor. Required if the actor logic requires input.
+    </ParamField>
+
+    <ParamField path="id" type="string">
+      The custom ID for referencing this actor. Defaults to a unique generated ID.
+    </ParamField>
+
+    <ParamField path="systemId" type="string">
+      The system ID to register this actor under for system-wide lookups.
+    </ParamField>
+
+    <ParamField path="snapshot" type="Snapshot<unknown>">
+      Initializes actor logic from a specific persisted internal state.
+
+      If the state is compatible with the actor logic, when the actor is started it will be at that persisted state. Actions from machine actors will not be re-executed, because they are assumed to have been already executed.
+    </ParamField>
+
+    <ParamField path="src" type="string | AnyActorLogic">
+      The source actor logic identifier.
+    </ParamField>
+
+    <ParamField path="clock" type="Clock">
+      The clock that is responsible for setting and clearing timeouts, such as delayed events and transitions.
+
+      By default, the native `setTimeout` and `clearTimeout` functions are used.
+
+      For testing, XState provides `SimulatedClock`.
+    </ParamField>
+
+    <ParamField path="logger" type="(...args: any[]) => void">
+      Specifies the logger to be used for `log(...)` actions. Defaults to the native `console.log(...)` method.
+    </ParamField>
+
+    <ParamField path="inspect" type="Observer<InspectionEvent> | (event: InspectionEvent) => void">
+      A callback function or observer object which can be used to inspect actor system updates.
+
+      The inspection events that can be observed include:
+      - `@xstate.actor` - An actor ref has been created in the system
+      - `@xstate.event` - An event was sent from a source actor to a target actor
+      - `@xstate.snapshot` - An actor emitted a snapshot due to a received event
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Returns
+
+<ResponseField name="actor" type="Actor<TLogic>">
+  An `Actor` instance that can receive events, send events, and change its behavior.
+
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">
+      The unique identifier for this actor relative to its parent.
+    </ResponseField>
+
+    <ResponseField name="sessionId" type="string">
+      The globally unique process ID for this invocation.
+    </ResponseField>
+
+    <ResponseField name="system" type="ActorSystem">
+      The system to which this actor belongs.
+    </ResponseField>
+
+    <ResponseField name="send" type="(event: EventFromLogic<TLogic>) => void">
+      Sends an event to the running actor to trigger a transition.
+    </ResponseField>
+
+    <ResponseField name="start" type="() => this">
+      Starts the actor from the initial state. Must be called before the actor can receive events.
+    </ResponseField>
+
+    <ResponseField name="stop" type="() => this">
+      Stops the actor and unsubscribes all listeners.
+    </ResponseField>
+
+    <ResponseField name="subscribe" type="(observer: Observer<SnapshotFrom<TLogic>>) => Subscription">
+      Subscribes an observer to the actor's snapshot values.
+    </ResponseField>
+
+    <ResponseField name="on" type="(type: string, handler: Function) => Subscription">
+      Registers an event listener for emitted events.
+    </ResponseField>
+
+    <ResponseField name="getSnapshot" type="() => SnapshotFrom<TLogic>">
+      Reads the actor's current snapshot synchronously.
+    </ResponseField>
+
+    <ResponseField name="getPersistedSnapshot" type="() => Snapshot<unknown>">
+      Obtains the internal state of the actor, which can be persisted.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Examples
+
+### Creating and starting an actor
+
+```ts
+import { createActor, createMachine } from 'xstate';
+
+const toggleMachine = createMachine({
+  id: 'toggle',
+  initial: 'inactive',
+  states: {
+    inactive: {
+      on: { TOGGLE: 'active' }
+    },
+    active: {
+      on: { TOGGLE: 'inactive' }
+    }
+  }
+});
+
+// Create the actor
+const actor = createActor(toggleMachine);
+
+// Subscribe to state changes
+actor.subscribe((snapshot) => {
+  console.log('State:', snapshot.value);
+});
+
+// Start the actor
+actor.start();
+// Logs: State: inactive
+
+// Send events
+actor.send({ type: 'TOGGLE' });
+// Logs: State: active
+
+// Stop the actor
+actor.stop();
+```
+
+### Actor with input
+
+```ts
+import { createActor, createMachine } from 'xstate';
+
+const greetMachine = createMachine({
+  types: {} as {
+    context: { name: string; count: number };
+    input: { name: string };
+  },
+  context: ({ input }) => ({
+    name: input.name,
+    count: 0
+  }),
+  initial: 'greeting',
+  states: {
+    greeting: {
+      entry: ({ context }) => {
+        console.log(`Hello, ${context.name}!`);
+      }
+    }
+  }
+});
+
+const actor = createActor(greetMachine, {
+  input: { name: 'Alice' }
+});
+
+actor.start();
+// Logs: Hello, Alice!
+```
+
+### Actor with inspection
+
+```ts
+import { createActor, createMachine } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: { START: 'running' }
+    },
+    running: {}
+  }
+});
+
+const actor = createActor(machine, {
+  inspect: (inspectionEvent) => {
+    if (inspectionEvent.type === '@xstate.event') {
+      console.log('Event:', inspectionEvent.event);
+    }
+    
+    if (inspectionEvent.type === '@xstate.snapshot') {
+      console.log('Snapshot:', inspectionEvent.snapshot.value);
+    }
+  }
+});
+
+actor.start();
+actor.send({ type: 'START' });
+```
+
+### Persisting and restoring actor state
+
+```ts
+import { createActor, createMachine } from 'xstate';
+
+const counterMachine = createMachine({
+  initial: 'active',
+  context: { count: 0 },
+  states: {
+    active: {
+      on: {
+        INCREMENT: {
+          actions: assign({ count: ({ context }) => context.count + 1 })
+        }
+      }
+    }
+  }
+});
+
+// Create and use the actor
+const actor1 = createActor(counterMachine);
+actor1.start();
+actor1.send({ type: 'INCREMENT' });
+actor1.send({ type: 'INCREMENT' });
+
+// Persist the state
+const persistedState = actor1.getPersistedSnapshot();
+
+// Later, restore the state
+const actor2 = createActor(counterMachine, {
+  snapshot: persistedState
+});
+actor2.start();
+
+console.log(actor2.getSnapshot().context.count); // 2
+```
+
+### Using different actor logics
+
+```ts
+import { createActor, fromPromise, fromCallback } from 'xstate';
+
+// Promise actor
+const promiseLogic = fromPromise(async ({ input }: { input: number }) => {
+  const response = await fetch(`/api/data/${input}`);
+  return response.json();
+});
+
+const promiseActor = createActor(promiseLogic, { input: 42 });
+promiseActor.start();
+
+// Callback actor
+const callbackLogic = fromCallback(({ sendBack }) => {
+  const interval = setInterval(() => {
+    sendBack({ type: 'TICK' });
+  }, 1000);
+
+  return () => clearInterval(interval);
+});
+
+const callbackActor = createActor(callbackLogic);
+callbackActor.subscribe((snapshot) => {
+  console.log('Callback actor snapshot:', snapshot);
+});
+callbackActor.start();
+```
+
+## Notes
+
+- Actors must be started with `.start()` before they can receive events or emit snapshots
+- Only root actors (those without a parent) can be stopped with `.stop()`
+- When an actor is stopped, all of its observers are automatically unsubscribed
+- The actor system is created when the root actor is created and manages all spawned child actors
+
+## See also
+
+- [createMachine()](/api/create-machine) - Create state machine logic
+- [Actor class](/api/actor) - Full Actor API reference
+- [fromPromise()](/actors/promise-actors) - Create promise-based actors
+- [fromCallback()](/actors/callback-actors) - Create callback-based actors

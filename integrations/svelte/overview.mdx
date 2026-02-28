@@ -1,0 +1,179 @@
+---
+title: 'Svelte Integration'
+description: 'Use XState with Svelte using @xstate/svelte'
+icon: 'code'
+---
+
+## Installation
+
+Install `xstate` and `@xstate/svelte`:
+
+```bash
+npm install xstate @xstate/svelte
+```
+
+## Quick Start
+
+The `@xstate/svelte` package provides functions to use XState with Svelte, returning Svelte stores:
+
+```svelte
+<script>
+  import { useMachine } from '@xstate/svelte';
+  import { createMachine } from 'xstate';
+
+  const toggleMachine = createMachine({
+    id: 'toggle',
+    initial: 'inactive',
+    states: {
+      inactive: {
+        on: { TOGGLE: 'active' }
+      },
+      active: {
+        on: { TOGGLE: 'inactive' }
+      }
+    }
+  });
+
+  const { snapshot, send } = useMachine(toggleMachine);
+</script>
+
+<button on:click={() => send({ type: 'TOGGLE' })}>
+  {$snapshot.value === 'inactive'
+    ? 'Click to activate'
+    : 'Active! Click to deactivate'}
+</button>
+```
+
+## Available Functions
+
+The `@xstate/svelte` package provides these functions:
+
+- `useActor(logic, options?)` - Creates and starts an actor from any XState logic
+- `useActorRef(logic, options?)` - Returns just the actor ref without reactive store
+- `useMachine(machine, options?)` - Alias for `useActor`, specifically typed for state machines
+- `useSelector(actorRef, selector, compare?)` - Derives and subscribes to a selected value from an actor
+
+## Return Values
+
+### useActor / useMachine
+
+Returns an object with:
+
+- `snapshot` - A Svelte readable store containing the current snapshot
+- `send` - Function to send events to the actor
+- `actorRef` - The underlying actor reference
+
+```svelte
+<script>
+  import { useMachine } from '@xstate/svelte';
+  import { myMachine } from './myMachine';
+
+  const { snapshot, send, actorRef } = useMachine(myMachine);
+
+  // Access snapshot with $snapshot store syntax
+  $: currentState = $snapshot.value;
+
+  // send events
+  function handleClick() {
+    send({ type: 'EVENT' });
+  }
+
+  // access the actor ref
+  actorRef.subscribe((state) => {
+    console.log(state);
+  });
+</script>
+
+<p>State: {currentState}</p>
+<button on:click={handleClick}>Send Event</button>
+```
+
+### useSelector
+
+Returns a Svelte readable store containing the selected value:
+
+```svelte
+<script>
+  import { useActor, useSelector } from '@xstate/svelte';
+  import { myMachine } from './myMachine';
+
+  const { actorRef } = useActor(myMachine);
+  const count = useSelector(actorRef, (state) => state.context.count);
+
+  // Access selected value with $count store syntax
+</script>
+
+<p>Count: {$count}</p>
+```
+
+## Svelte Stores
+
+All reactive values are returned as [Svelte readable stores](https://svelte.dev/docs#run-time-svelte-store-readable), which means:
+
+- Use the `$` prefix to access values in templates: `$snapshot`
+- Subscribe to changes with the `.subscribe()` method
+- Automatically unsubscribe when component is destroyed
+
+```svelte
+<script>
+  import { useMachine } from '@xstate/svelte';
+  import { onMount } from 'svelte';
+  import { myMachine } from './myMachine';
+
+  const { snapshot, send } = useMachine(myMachine);
+
+  // Manual subscription (automatically cleaned up)
+  onMount(() => {
+    const unsubscribe = snapshot.subscribe((state) => {
+      console.log('State changed:', state);
+    });
+
+    return unsubscribe;
+  });
+</script>
+
+<!-- Use $ prefix in template -->
+<p>Current state: {$snapshot.value}</p>
+```
+
+## Lifecycle
+
+The actor is automatically started when created and stopped when the component is destroyed:
+
+- Actor is started immediately via `createActor(logic, options).start()`
+- `onDestroy` - Actor is stopped when component is destroyed
+
+## TypeScript
+
+All functions are fully typed when using TypeScript:
+
+```typescript
+import { setup } from 'xstate';
+import { useMachine } from '@xstate/svelte';
+
+const machine = setup({
+  types: {
+    context: {} as { count: number },
+    events: {} as { type: 'INCREMENT' } | { type: 'DECREMENT' }
+  }
+}).createMachine({
+  // ...
+});
+
+// TypeScript infers all types
+const { snapshot, send } = useMachine(machine);
+
+// $snapshot.context.count is number
+// send accepts only defined events
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="useActor" icon="play" href="/integrations/svelte/use-actor">
+    Learn about the useActor function
+  </Card>
+  <Card title="useSelector" icon="filter" href="/integrations/svelte/use-selector">
+    Select derived values from actor snapshots
+  </Card>
+</CardGroup>

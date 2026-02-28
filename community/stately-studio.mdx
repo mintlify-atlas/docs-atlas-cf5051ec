@@ -1,0 +1,315 @@
+---
+title: Stately Studio
+description: Visual state machine editor and collaboration platform
+---
+
+Stately Studio is a visual editor for creating, editing, and collaborating on state machines and statecharts. It provides powerful tools for designing application logic visually and exporting to XState v5.
+
+## Getting Started
+
+Create your first state machine in seconds:
+
+<Card title="Open Stately Studio" icon="diagram-project" href="https://stately.ai/registry/new">
+  Start creating state machines visually at **state.new**
+</Card>
+
+## Key Features
+
+### Visual Editor
+
+Stately Studio provides an intuitive drag-and-drop interface for building state machines:
+
+- **State creation** - Add states, transitions, and events visually
+- **Nested states** - Build hierarchical state machines with ease
+- **Parallel states** - Design concurrent workflows
+- **Actions and guards** - Configure entry/exit actions and transition guards
+- **Context and events** - Define machine data and event types
+
+### Live Simulation
+
+Test your machines interactively:
+
+- **Event simulation** - Send events and watch state transitions
+- **State inspection** - View current state and context values
+- **Time travel** - Step backward and forward through state changes
+- **Path exploration** - Visualize all possible paths through your machine
+
+### Export to XState
+
+Generate clean, production-ready XState v5 code:
+
+```typescript
+// Exported from Stately Studio
+import { setup, createActor } from 'xstate';
+
+const machine = setup({
+  types: {} as {
+    context: { count: number };
+    events: { type: 'INCREMENT' } | { type: 'DECREMENT' };
+  }
+}).createMachine({
+  id: 'counter',
+  initial: 'active',
+  context: { count: 0 },
+  states: {
+    active: {
+      on: {
+        INCREMENT: {
+          actions: assign({
+            count: ({ context }) => context.count + 1
+          })
+        }
+      }
+    }
+  }
+});
+```
+
+### Collaboration Features
+
+Work together with your team:
+
+- **Real-time collaboration** - Edit machines with teammates simultaneously
+- **Comments** - Leave feedback and discuss design decisions
+- **Version history** - Track changes and restore previous versions
+- **Sharing** - Share machines with view or edit access
+- **Teams** - Organize machines within team workspaces
+
+### AI-Powered Generation
+
+**Stately AI** helps you build machines faster:
+
+- Generate state machines from natural language descriptions
+- Modify existing machines with AI assistance
+- Get suggestions for common patterns
+- Accelerate initial machine design
+
+## Stately Studio Features by Plan
+
+### Free Plan
+
+- Unlimited public machines
+- Export to XState v5, Mermaid, and JSON
+- Live simulation and testing
+- Community support
+- Access to examples and templates
+
+### Pro Plan
+
+Additional features:
+
+- **Private machines** - Keep your work confidential
+- **Version history** - Access full change history
+- **Priority support** - Faster response times
+- **Advanced exports** - Additional export formats
+- **Stately AI access** - Generate and modify with AI
+
+### Team Plan
+
+Everything in Pro, plus:
+
+- **Team workspaces** - Organize team machines
+- **Role-based access** - Control permissions
+- **Team collaboration** - Real-time co-editing
+- **Admin controls** - Manage team members
+- **Usage analytics** - Track team activity
+
+## Using Stately Studio with XState
+
+### Import Existing Machines
+
+Import XState code into Stately Studio:
+
+1. Open Stately Studio
+2. Click "Import" and paste your XState code
+3. Edit visually and re-export
+
+### Export Formats
+
+Stately Studio can export to:
+
+- **XState v5** - Production-ready TypeScript/JavaScript
+- **JSON** - Machine configuration as JSON
+- **Mermaid** - State diagrams for documentation
+- **Image** - PNG or SVG for presentations
+
+### Workflow Integration
+
+Integrate Stately Studio into your development workflow:
+
+1. **Design** - Create and iterate on machine logic visually
+2. **Export** - Generate XState v5 code
+3. **Implement** - Add implementation details in your codebase
+4. **Test** - Test with XState's testing utilities
+5. **Deploy** - Ship your state machines to production
+6. **Maintain** - Update in Studio and re-export as needed
+
+## Templates and Examples
+
+Start from proven patterns:
+
+<CardGroup cols={2}>
+  <Card title="Authentication Flow" icon="lock">
+    Login, signup, and password reset flows
+  </Card>
+  <Card title="Form Validation" icon="check-square">
+    Multi-step forms with validation
+  </Card>
+  <Card title="Data Fetching" icon="download">
+    Loading, error, and success states
+  </Card>
+  <Card title="Shopping Cart" icon="shopping-cart">
+    E-commerce cart management
+  </Card>
+</CardGroup>
+
+Browse more templates in the [Stately Studio registry](https://stately.ai/registry).
+
+## Documentation Generation
+
+Stately Studio automatically generates:
+
+- **State documentation** - Descriptions of each state
+- **Transition tables** - All events and transitions
+- **Path coverage** - Test paths through the machine
+- **Sequence diagrams** - Event flow visualizations
+
+Use generated docs for:
+- Team communication
+- Requirements documentation
+- Test planning
+- Architecture reviews
+
+## Stately Sky
+
+Deploy and run your state machines in the cloud:
+
+- **Hosted workflows** - Run machines without infrastructure
+- **Event ingestion** - Send events via API
+- **State persistence** - Automatically persist machine state
+- **Monitoring** - Track machine execution
+- **Webhooks** - React to state changes
+
+Learn more at [stately.ai/sky](https://stately.ai).
+
+## VS Code Extension
+
+The [Stately VS Code extension](https://marketplace.visualstudio.com/items?itemName=statelyai.stately-vscode) brings Stately Studio into your editor:
+
+- Visualize machines directly in VS Code
+- Edit machines and sync changes to code
+- Navigate between states and code
+- Autocomplete for state names and events
+
+Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=statelyai.stately-vscode).
+
+## Stately Inspect
+
+Debug running state machines:
+
+```typescript
+import { createActor } from 'xstate';
+import { createBrowserInspector } from '@statelyai/inspect';
+
+const inspector = createBrowserInspector();
+
+const actor = createActor(machine, {
+  inspect: inspector.inspect
+}).start();
+```
+
+Inspect:
+- Current state and context
+- Event history
+- Transition logs
+- Spawned actors
+
+Learn more about [@statelyai/inspect](https://github.com/statelyai/inspect).
+
+## Learning Resources
+
+### Video Tutorials
+
+<CardGroup cols={2}>
+  <Card title="Stately YouTube" icon="youtube" href="https://www.youtube.com/c/statelyai">
+    Tutorials, tips, and feature walkthroughs
+  </Card>
+  <Card title="Getting Started" icon="play">
+    Quick start videos for beginners
+  </Card>
+</CardGroup>
+
+### Documentation
+
+- [Stately Studio Docs](https://stately.ai/docs/studio) - Complete Studio guide
+- [Stately Blog](https://stately.ai/blog) - Tips, patterns, and case studies
+- [Example Machines](https://stately.ai/registry) - Browse the public registry
+
+## Best Practices
+
+### Keep Machines Focused
+
+- Design single-responsibility machines
+- Use actor composition for complex workflows
+- Avoid deeply nested state hierarchies
+
+### Use Descriptive Names
+
+- Name states clearly (e.g., "loadingUser" not "loading")
+- Use semantic event names (e.g., "SUBMIT_FORM" not "CLICK")
+- Document intent with state descriptions
+
+### Test Paths Visually
+
+- Use simulation to test happy and error paths
+- Verify all states are reachable
+- Check for impossible states
+
+### Version Control
+
+- Export machines to version control
+- Use Studio's version history for iterations
+- Tag releases with meaningful versions
+
+### Document Decisions
+
+- Add comments explaining complex logic
+- Use descriptions for states and transitions
+- Share context with your team
+
+## Getting Help
+
+<CardGroup cols={2}>
+  <Card title="Discord #stately-studio" icon="discord" href="https://discord.gg/xstate">
+    Get help from the community
+  </Card>
+  <Card title="Support Email" icon="envelope" href="mailto:support@stately.ai">
+    Contact support for Pro/Team issues
+  </Card>
+  <Card title="GitHub Issues" icon="github" href="https://github.com/statelyai/xstate/issues">
+    Report bugs and request features
+  </Card>
+  <Card title="Tutorials" icon="graduation-cap" href="https://stately.ai/docs">
+    Learn with step-by-step guides
+  </Card>
+</CardGroup>
+
+## Pricing
+
+Stately Studio offers plans for individuals and teams:
+
+- **Free** - Perfect for learning and public projects
+- **Pro** - For professional developers ($19/month)
+- **Team** - For teams and organizations (Custom pricing)
+
+See current pricing at [stately.ai/pricing](https://stately.ai/pricing).
+
+## Try It Now
+
+<Card title="Create Your First Machine" icon="rocket" href="https://stately.ai/registry/new">
+  Start building state machines visually at **state.new**
+</Card>
+
+---
+
+Stately Studio makes state machines accessible, visual, and collaborative. Whether you're learning state machines or building production applications, Stately Studio helps you design better application logic. 🎨

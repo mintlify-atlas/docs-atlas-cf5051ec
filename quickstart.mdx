@@ -1,80 +1,215 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick start
+description: Build your first state machine with XState in 5 minutes
 ---
 
-## Get started in three steps
+This guide will walk you through creating your first state machine with XState. You'll learn how to define states, handle events, and manage context.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Make sure you have XState installed:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+```bash
+npm install xstate
+```
 
-### Step 2: Deploy your changes
+## Build a toggle machine
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+Let's create a simple toggle machine that switches between inactive and active states, and counts how many times it's been activated.
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+<Steps>
+  <Step title="Import XState functions">
+    First, import the functions you'll need from XState:
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```typescript
+    import { createMachine, createActor, assign } from 'xstate';
+    ```
 
-### Step 3: Go live
+    - `createMachine` - Creates a state machine definition
+    - `createActor` - Creates a running instance of the machine
+    - `assign` - Updates the machine's context (data)
+  </Step>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+  <Step title="Define the state machine">
+    Create a state machine with two states and a counter:
+
+    ```typescript
+    const toggleMachine = createMachine({
+      id: 'toggle',
+      initial: 'inactive',
+      context: {
+        count: 0
+      },
+      states: {
+        inactive: {
+          on: {
+            TOGGLE: { target: 'active' }
+          }
+        },
+        active: {
+          entry: assign({ count: ({ context }) => context.count + 1 }),
+          on: {
+            TOGGLE: { target: 'inactive' }
+          }
+        }
+      }
+    });
+    ```
+
+    This machine:
+    - Starts in the `inactive` state
+    - Has a `count` in its context that tracks activations
+    - Transitions to `active` when it receives a `TOGGLE` event
+    - Increments the counter each time it enters the `active` state
+    - Returns to `inactive` when it receives another `TOGGLE` event
+  </Step>
+
+  <Step title="Create an actor">
+    An actor is a running instance of your state machine logic, like a store:
+
+    ```typescript
+    const toggleActor = createActor(toggleMachine);
+    ```
+
+    The actor hasn't started yet, so it won't process events until you start it.
+  </Step>
+
+  <Step title="Subscribe to state changes">
+    Subscribe to the actor to receive updates when the state changes:
+
+    ```typescript
+    toggleActor.subscribe((state) => {
+      console.log(state.value, state.context);
+    });
+    ```
+
+    The `state` object contains:
+    - `state.value` - The current state name
+    - `state.context` - The current context data
+  </Step>
+
+  <Step title="Start the actor">
+    Start the actor to begin processing:
+
+    ```typescript
+    toggleActor.start();
+    // => logs 'inactive', { count: 0 }
+    ```
+
+    When you start the actor, it immediately emits its initial state.
+  </Step>
+
+  <Step title="Send events">
+    Send events to trigger state transitions:
+
+    ```typescript
+    toggleActor.send({ type: 'TOGGLE' });
+    // => logs 'active', { count: 1 }
+
+    toggleActor.send({ type: 'TOGGLE' });
+    // => logs 'inactive', { count: 1 }
+    ```
+
+    Each time you send the `TOGGLE` event:
+    - The machine transitions to the next state
+    - The counter increments when entering the `active` state
+    - Subscribers are notified of the state change
+  </Step>
+</Steps>
+
+## Complete example
+
+Here's the complete code:
+
+```typescript
+import { createMachine, createActor, assign } from 'xstate';
+
+// State machine
+const toggleMachine = createMachine({
+  id: 'toggle',
+  initial: 'inactive',
+  context: {
+    count: 0
+  },
+  states: {
+    inactive: {
+      on: {
+        TOGGLE: { target: 'active' }
+      }
+    },
+    active: {
+      entry: assign({ count: ({ context }) => context.count + 1 }),
+      on: {
+        TOGGLE: { target: 'inactive' }
+      }
+    }
+  }
+});
+
+// Actor (instance of the machine logic, like a store)
+const toggleActor = createActor(toggleMachine);
+toggleActor.subscribe((state) => console.log(state.value, state.context));
+toggleActor.start();
+// => logs 'inactive', { count: 0 }
+
+toggleActor.send({ type: 'TOGGLE' });
+// => logs 'active', { count: 1 }
+
+toggleActor.send({ type: 'TOGGLE' });
+// => logs 'inactive', { count: 1 }
+```
+
+## Understanding the core concepts
+
+### States
+
+States represent the different modes your application can be in. In this example:
+- `inactive` - The toggle is off
+- `active` - The toggle is on
+
+Your machine can only be in one state at a time, which prevents impossible states.
+
+### Events
+
+Events trigger transitions between states. Events are objects with a `type` property:
+
+```typescript
+{ type: 'TOGGLE' }
+```
+
+### Context
+
+Context is the data that persists across state transitions. Use `assign` to update context:
+
+```typescript
+entry: assign({ count: ({ context }) => context.count + 1 })
+```
+
+### Actors
+
+Actors are running instances of your state machine logic. They:
+- Process events
+- Emit state changes
+- Can be subscribed to for updates
+- Can spawn other actors
+
+<Tip>
+Think of a state machine as a blueprint, and an actor as a running instance of that blueprint, similar to how a class is a blueprint and an object is an instance.
+</Tip>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Core concepts" icon="book" href="/core-concepts">
+    Dive deeper into state machines and actors
+  </Card>
+  <Card title="State machine basics" icon="diagram-project" href="/state-machines">
+    Learn about hierarchical and parallel states
+  </Card>
+  <Card title="Actions" icon="bolt" href="/actions">
+    Execute side effects in your state machines
+  </Card>
+  <Card title="Stately Studio" icon="paintbrush" href="https://state.new">
+    Visualize and edit your state machines
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

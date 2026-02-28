@@ -1,0 +1,176 @@
+---
+title: raise
+description: API reference for the raise action
+---
+
+Raises an event. This places the event in the internal event queue, so that the event is immediately consumed by the machine in the current step.
+
+```ts
+import { raise } from 'xstate';
+```
+
+## Signature
+
+```ts
+function raise<
+  TContext extends MachineContext,
+  TExpressionEvent extends EventObject,
+  TEvent extends EventObject,
+  TParams extends ParameterizedObject['params'] | undefined,
+  TDelay extends string = never,
+  TUsedDelay extends TDelay = never
+>(
+  eventOrExpr:
+    | DoNotInfer<TEvent>
+    | SendExpr<TContext, TExpressionEvent, TParams, DoNotInfer<TEvent>, TEvent>,
+  options?: RaiseActionOptions<TContext, TExpressionEvent, TParams, DoNotInfer<TEvent>, TUsedDelay>
+): ActionFunction<
+  TContext,
+  TExpressionEvent,
+  TEvent,
+  TParams,
+  never,
+  never,
+  never,
+  TDelay,
+  never
+>
+```
+
+## Parameters
+
+<ParamField path="eventOrExpr" type="EventObject | SendExpr" required>
+  The event to raise. Can be either:
+  - An event object (e.g., `{ type: 'NEXT' }`)
+  - A function that receives `ActionArgs` and returns an event object
+  
+  <Warning>
+    Only event objects may be used with `raise`. String event types are not allowed. Use `raise({ type: "EVENT_NAME" })` instead of `raise("EVENT_NAME")`.
+  </Warning>
+</ParamField>
+
+<ParamField path="options" type="RaiseActionOptions">
+  Optional configuration object:
+  
+  <Expandable title="properties">
+    <ParamField path="id" type="string">
+      The unique identifier for this raised event. Used with `cancel()` to cancel delayed raises.
+    </ParamField>
+    
+    <ParamField path="delay" type="string | number | DelayExpr">
+      The delay before raising the event:
+      - Number: milliseconds to delay
+      - String: reference to a delay defined in `delays` implementation
+      - Function: expression that receives `ActionArgs` and returns delay in milliseconds
+      
+      If no delay is specified, the event is raised immediately.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Returns
+
+<ResponseField name="ActionFunction" type="ActionFunction">
+  An action function that raises the event when executed.
+</ResponseField>
+
+## Examples
+
+### Basic usage
+
+```ts
+import { createMachine, raise } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        START: {
+          actions: raise({ type: 'NEXT' }),
+          target: 'working'
+        },
+        NEXT: {
+          target: 'done'
+        }
+      }
+    },
+    working: {},
+    done: {}
+  }
+});
+```
+
+### Dynamic event
+
+```ts
+const machine = createMachine({
+  context: { value: 0 },
+  on: {
+    INCREMENT: {
+      actions: raise(({ context }) => ({
+        type: 'UPDATE',
+        value: context.value + 1
+      }))
+    },
+    UPDATE: {
+      actions: assign({
+        value: ({ event }) => event.value
+      })
+    }
+  }
+});
+```
+
+### Delayed raise
+
+```ts
+const machine = createMachine({
+  initial: 'waiting',
+  states: {
+    waiting: {
+      entry: raise(
+        { type: 'TIMEOUT' },
+        { delay: 1000, id: 'timeout' }
+      ),
+      on: {
+        CANCEL: {
+          actions: cancel('timeout')
+        },
+        TIMEOUT: {
+          target: 'done'
+        }
+      }
+    },
+    done: {}
+  }
+});
+```
+
+### Using named delays
+
+```ts
+const machine = createMachine(
+  {
+    initial: 'idle',
+    states: {
+      idle: {
+        entry: raise({ type: 'START' }, { delay: 'shortDelay' }),
+        on: {
+          START: 'active'
+        }
+      },
+      active: {}
+    }
+  },
+  {
+    delays: {
+      shortDelay: 500
+    }
+  }
+);
+```
+
+<Warning>
+  Custom actions should not call `raise()` directly, as it is not imperative. Use it only in machine configurations.
+</Warning>

@@ -1,0 +1,358 @@
+---
+title: 'useActor'
+description: 'Create and manage XState actors in Svelte components'
+icon: 'play'
+---
+
+## Overview
+
+The `useActor` function creates an actor from XState logic and manages its lifecycle within a Svelte component.
+
+```typescript
+function useActor<TLogic extends AnyActorLogic>(
+  logic: TLogic,
+  options?: ActorOptions<TLogic>
+): {
+  snapshot: Readable<SnapshotFrom<TLogic>>;
+  send: (event: EventFromLogic<TLogic>) => void;
+  actorRef: Actor<TLogic>;
+}
+```
+
+## Basic Usage
+
+<CodeGroup>
+
+```svelte State Machine
+<script>
+  import { useActor } from '@xstate/svelte';
+  import { createMachine } from 'xstate';
+
+  const toggleMachine = createMachine({
+    id: 'toggle',
+    initial: 'inactive',
+    states: {
+      inactive: {
+        on: { TOGGLE: 'active' }
+      },
+      active: {
+        on: { TOGGLE: 'inactive' }
+      }
+    }
+  });
+
+  const { snapshot, send } = useActor(toggleMachine);
+</script>
+
+<div>
+  <p>State: {$snapshot.value}</p>
+  <button on:click={() => send({ type: 'TOGGLE' })}>
+    Toggle
+  </button>
+</div>
+```
+
+```svelte Promise Logic
+<script>
+  import { useActor } from '@xstate/svelte';
+  import { fromPromise } from 'xstate';
+
+  const fetchUser = fromPromise(async () => {
+    const response = await fetch('/api/user');
+    return response.json();
+  });
+
+  const { snapshot } = useActor(fetchUser);
+</script>
+
+<div>
+  {#if $snapshot.status === 'active'}
+    <p>Loading...</p>
+  {:else if $snapshot.status === 'done'}
+    <p>User: {$snapshot.output.name}</p>
+  {:else if $snapshot.status === 'error'}
+    <p>Error: {$snapshot.error.message}</p>
+  {/if}
+</div>
+```
+
+```svelte Transition Logic
+<script>
+  import { useActor } from '@xstate/svelte';
+  import { fromTransition } from 'xstate';
+
+  const counterLogic = fromTransition(
+    (state, event) => {
+      if (event.type === 'INCREMENT') {
+        return { count: state.count + 1 };
+      }
+      if (event.type === 'DECREMENT') {
+        return { count: state.count - 1 };
+      }
+      return state;
+    },
+    { count: 0 }
+  );
+
+  const { snapshot, send } = useActor(counterLogic);
+</script>
+
+<div>
+  <p>Count: {$snapshot.context.count}</p>
+  <button on:click={() => send({ type: 'INCREMENT' })}>+</button>
+  <button on:click={() => send({ type: 'DECREMENT' })}>-</button>
+</div>
+```
+
+</CodeGroup>
+
+## With Options
+
+Pass options to configure the actor:
+
+```svelte
+<script>
+  import { useActor } from '@xstate/svelte';
+  import { createMachine } from 'xstate';
+
+  const machine = createMachine({
+    context: ({ input }) => ({
+      userId: input.userId,
+      data: null
+    }),
+    // ...
+  });
+
+  const { snapshot, send } = useActor(machine, {
+    input: { userId: '123' },
+    inspect: (event) => {
+      console.log('Inspector:', event);
+    }
+  });
+</script>
+```
+
+## Accessing the Actor Ref
+
+The `actorRef` allows direct interaction with the underlying actor:
+
+```svelte
+<script>
+  import { useActor } from '@xstate/svelte';
+  import { onMount, onDestroy } from 'svelte';
+  import { myMachine } from './myMachine';
+
+  const { snapshot, send, actorRef } = useActor(myMachine);
+
+  // Subscribe to state changes
+  let subscription;
+  onMount(() => {
+    subscription = actorRef.subscribe((state) => {
+      console.log('State changed:', state);
+    });
+  });
+
+  onDestroy(() => {
+    subscription?.unsubscribe();
+  });
+
+  // Get current snapshot at any time
+  function logCurrentState() {
+    const currentState = actorRef.getSnapshot();
+    console.log(currentState);
+  }
+</script>
+```
+
+## Reactive Store
+
+The `snapshot` is a Svelte readable store that automatically updates:
+
+```svelte
+<script>
+  import { useActor } from '@xstate/svelte';
+  import { fetchMachine } from './fetchMachine';
+
+  const { snapshot, send } = useActor(fetchMachine);
+
+  // Reactive statements based on snapshot
+  $: isLoading = $snapshot.matches('loading');
+  $: data = $snapshot.context.data;
+  $: hasError = $snapshot.matches('error');
+</script>
+
+<div>
+  {#if isLoading}
+    <p>Loading...</p>
+  {:else if hasError}
+    <p>Error occurred</p>
+  {:else}
+    <pre>{JSON.stringify(data, null, 2)}</pre>
+  {/if}
+</div>
+```
+
+## useMachine Alias
+
+The `useMachine` function is an alias for `useActor` with the same API:
+
+```svelte
+<script>
+  import { useMachine } from '@xstate/svelte';
+  import { createMachine } from 'xstate';
+
+  const machine = createMachine({
+    // ...
+  });
+
+  // useMachine and useActor are identical
+  const { snapshot, send, actorRef } = useMachine(machine);
+</script>
+```
+
+## Lifecycle Management
+
+The actor lifecycle is automatically managed:
+
+1. **Immediate Start**
+   - Actor is created and started immediately: `createActor(logic, options).start()`
+
+2. **Component Destroy** (`onDestroy`)
+   - Actor is stopped via `actorRef.stop()`
+
+```svelte
+<script>
+  import { useActor } from '@xstate/svelte';
+  import { myMachine } from './myMachine';
+
+  // Actor starts immediately
+  const { snapshot, send } = useActor(myMachine);
+
+  // Actor automatically stops when component is destroyed
+</script>
+```
+
+## Multiple Actors
+
+You can create multiple actors in a single component:
+
+```svelte
+<script>
+  import { useActor } from '@xstate/svelte';
+  import { authMachine, dataMachine } from './machines';
+
+  const auth = useActor(authMachine);
+  const data = useActor(dataMachine);
+</script>
+
+<div>
+  <p>Auth state: {$auth.snapshot.value}</p>
+  <p>Data state: {$data.snapshot.value}</p>
+  
+  <button on:click={() => auth.send({ type: 'LOGIN' })}>
+    Login
+  </button>
+  <button on:click={() => data.send({ type: 'FETCH' })}>
+    Fetch Data
+  </button>
+</div>
+```
+
+## With Context
+
+Share actors across components using Svelte's context API:
+
+<CodeGroup>
+
+```svelte Parent.svelte
+<script>
+  import { setContext } from 'svelte';
+  import { useActor } from '@xstate/svelte';
+  import { appMachine } from './appMachine';
+  import Child from './Child.svelte';
+
+  const actor = useActor(appMachine);
+  setContext('actor', actor);
+</script>
+
+<div>
+  <h1>App State: {$actor.snapshot.value}</h1>
+  <Child />
+</div>
+```
+
+```svelte Child.svelte
+<script>
+  import { getContext } from 'svelte';
+
+  const { snapshot, send } = getContext('actor');
+</script>
+
+<div>
+  <p>Child sees: {$snapshot.value}</p>
+  <button on:click={() => send({ type: 'NEXT' })}>
+    Next
+  </button>
+</div>
+```
+
+</CodeGroup>
+
+## TypeScript
+
+The function is fully typed:
+
+```typescript
+import { setup } from 'xstate';
+import { useActor } from '@xstate/svelte';
+import type { Readable } from 'svelte/store';
+
+const machine = setup({
+  types: {
+    context: {} as { count: number; name: string },
+    events: {} as 
+      | { type: 'INCREMENT' }
+      | { type: 'DECREMENT' }
+      | { type: 'SET_NAME'; name: string }
+  }
+}).createMachine({
+  context: { count: 0, name: '' },
+  // ...
+});
+
+const { snapshot, send, actorRef } = useActor(machine);
+
+// snapshot is Readable<SnapshotFrom<typeof machine>>
+// All types are inferred
+snapshot.subscribe((state) => {
+  state.context.count; // number
+  state.context.name; // string
+});
+
+// TypeScript validates events
+send({ type: 'INCREMENT' }); // ✅
+send({ type: 'SET_NAME', name: 'Alice' }); // ✅
+send({ type: 'INVALID' }); // ❌ TypeScript error
+```
+
+## Implementation Details
+
+The `useActor` function:
+
+1. Creates an actor using `useActorRef(logic, options)`
+2. Gets the initial snapshot
+3. Creates a Svelte readable store
+4. Subscribes to actor changes in the store's start function
+5. Updates the store only when snapshot reference changes
+6. Automatically unsubscribes when the store has no subscribers
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="useActorRef" icon="link" href="/integrations/svelte/overview#useactorref">
+    Get actor ref without reactive store
+  </Card>
+  <Card title="useSelector" icon="filter" href="/integrations/svelte/use-selector">
+    Select derived values from snapshots
+  </Card>
+</CardGroup>

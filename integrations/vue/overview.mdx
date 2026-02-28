@@ -1,0 +1,151 @@
+---
+title: 'Vue Integration'
+description: 'Use XState with Vue 3 using @xstate/vue'
+icon: 'vuejs'
+---
+
+## Installation
+
+Install `xstate` and `@xstate/vue`:
+
+```bash
+npm install xstate @xstate/vue
+```
+
+<Warning>
+**Vue 2 Notice**: This package is for Vue 3 only. For Vue 2, see the [Vue recipe](https://xstate.js.org/docs/recipes/vue.html) or use [`xstate-vue2`](https://github.com/ChrisShank/xstate-vue2).
+</Warning>
+
+## Quick Start
+
+The `@xstate/vue` package provides composition functions to use XState with Vue 3:
+
+```vue
+<script setup>
+import { useMachine } from '@xstate/vue';
+import { createMachine } from 'xstate';
+
+const toggleMachine = createMachine({
+  id: 'toggle',
+  initial: 'inactive',
+  states: {
+    inactive: {
+      on: { TOGGLE: 'active' }
+    },
+    active: {
+      on: { TOGGLE: 'inactive' }
+    }
+  }
+});
+
+const { snapshot, send } = useMachine(toggleMachine);
+</script>
+
+<template>
+  <button @click="send({ type: 'TOGGLE' })">
+    {{
+      snapshot.value === 'inactive'
+        ? 'Click to activate'
+        : 'Active! Click to deactivate'
+    }}
+  </button>
+</template>
+```
+
+## Available Hooks
+
+The `@xstate/vue` package provides these composition functions:
+
+- `useActor(logic, options?)` - Creates and starts an actor from any XState logic
+- `useActorRef(logic, options?, observerOrListener?)` - Returns just the actor ref without reactive snapshot
+- `useMachine(machine, options?)` - Alias for `useActor`, specifically typed for state machines
+- `useSelector(actorRef, selector, compare?)` - Derives and subscribes to a selected value from an actor
+
+## Return Values
+
+### useActor / useMachine
+
+Returns an object with:
+
+- `snapshot` - A Vue `Ref` containing the current snapshot
+- `send` - Function to send events to the actor
+- `actorRef` - The underlying actor reference
+
+```vue
+<script setup>
+import { useMachine } from '@xstate/vue';
+import { myMachine } from './myMachine';
+
+const { snapshot, send, actorRef } = useMachine(myMachine);
+
+// snapshot.value contains the current state
+console.log(snapshot.value.value);
+
+// send events
+send({ type: 'EVENT' });
+
+// access the actor ref
+actorRef.subscribe((state) => {
+  console.log(state);
+});
+</script>
+```
+
+### useSelector
+
+Returns a Vue `Ref` containing the selected value:
+
+```vue
+<script setup>
+import { useActor, useSelector } from '@xstate/vue';
+import { myMachine } from './myMachine';
+
+const { actorRef } = useActor(myMachine);
+const count = useSelector(actorRef, (state) => state.context.count);
+
+// count.value contains the selected value
+console.log(count.value);
+</script>
+```
+
+## Lifecycle
+
+The actor is automatically started when the component is mounted and stopped when unmounted:
+
+- `onMounted` - Actor is started and subscriptions are created
+- `onBeforeUnmount` - Actor is stopped and subscriptions are cleaned up
+
+## TypeScript
+
+All hooks are fully typed when using TypeScript:
+
+```typescript
+import { setup } from 'xstate';
+import { useMachine } from '@xstate/vue';
+
+const machine = setup({
+  types: {
+    context: {} as { count: number },
+    events: {} as { type: 'INCREMENT' } | { type: 'DECREMENT' }
+  }
+}).createMachine({
+  // ...
+});
+
+// TypeScript infers all types
+const { snapshot, send } = useMachine(machine);
+
+// snapshot.value.context.count is number
+// send accepts only defined events
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="useActor" icon="play" href="/integrations/vue/use-actor">
+    Learn about the useActor composition function
+  </Card>
+  <Card title="useSelector" icon="filter" href="/integrations/vue/use-selector">
+    Select derived values from actor snapshots
+  </Card>
+</CardGroup>

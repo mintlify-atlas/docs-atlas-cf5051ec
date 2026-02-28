@@ -1,0 +1,386 @@
+---
+title: 'fromActorRef'
+description: 'Subscribe to existing XState actors in SolidJS'
+icon: 'link'
+---
+
+## Overview
+
+The `fromActorRef` function subscribes to an existing actor and returns a tracked accessor function for its snapshot. It integrates with SolidJS's reactivity system for fine-grained updates.
+
+```typescript
+function fromActorRef<TActor extends AnyActorRef | undefined>(
+  actorRef: Accessor<TActor> | TActor
+): Accessor<SnapshotFrom<NonNullable<TActor>> | undefined>
+```
+
+## Basic Usage
+
+<CodeGroup>
+
+```jsx Subscribe to Actor
+import { useActorRef, fromActorRef } from '@xstate/solid';
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  context: { count: 0 },
+  // ...
+});
+
+export const App = () => {
+  const actorRef = useActorRef(machine);
+  const snapshot = fromActorRef(actorRef);
+
+  return (
+    <div>
+      <p>Count: {snapshot()?.context.count}</p>
+      <button onclick={() => actorRef.send({ type: 'INCREMENT' })}>
+        Increment
+      </button>
+    </div>
+  );
+};
+```
+
+```jsx With Spawned Actors
+import { useActor, fromActorRef } from '@xstate/solid';
+import { Show } from 'solid-js';
+import { parentMachine } from './parentMachine';
+
+export const App = () => {
+  const [parentSnapshot] = useActor(parentMachine);
+  
+  // Subscribe to child actor from parent context
+  const childActor = () => parentSnapshot.context.childActor;
+  const childSnapshot = fromActorRef(childActor);
+
+  return (
+    <div>
+      <p>Parent state: {parentSnapshot.value}</p>
+      <Show when={childSnapshot()}>
+        <p>Child state: {childSnapshot()?.value}</p>
+      </Show>
+    </div>
+  );
+};
+```
+
+```jsx Dynamic Actor
+import { fromActorRef } from '@xstate/solid';
+import { createSignal } from 'solid-js';
+import { createActor } from 'xstate';
+import { machine1, machine2 } from './machines';
+
+export const App = () => {
+  const [currentActor, setCurrentActor] = createSignal(
+    createActor(machine1).start()
+  );
+
+  const snapshot = fromActorRef(currentActor);
+
+  const switchActor = () => {
+    currentActor().stop();
+    setCurrentActor(createActor(machine2).start());
+  };
+
+  return (
+    <div>
+      <p>Value: {snapshot()?.context.value}</p>
+      <button onclick={switchActor}>Switch Actor</button>
+    </div>
+  );
+};
+```
+
+</CodeGroup>
+
+## Reactive Actor Reference
+
+You can pass either a static actor ref or an accessor function:
+
+<CodeGroup>
+
+```jsx Static Actor Ref
+import { fromActorRef } from '@xstate/solid';
+import { createActor } from 'xstate';
+import { myMachine } from './myMachine';
+
+const actorRef = createActor(myMachine).start();
+
+export const App = () => {
+  // Pass actor ref directly
+  const snapshot = fromActorRef(actorRef);
+
+  return <div>State: {snapshot()?.value}</div>;
+};
+```
+
+```jsx Accessor Function
+import { fromActorRef } from '@xstate/solid';
+import { createSignal } from 'solid-js';
+import { createActor } from 'xstate';
+import { myMachine } from './myMachine';
+
+export const App = () => {
+  const [actorRef] = createSignal(createActor(myMachine).start());
+
+  // Pass accessor function
+  const snapshot = fromActorRef(actorRef);
+
+  return <div>State: {snapshot()?.value}</div>;
+};
+```
+
+</CodeGroup>
+
+## Granular Reactivity
+
+The snapshot accessor integrates with SolidJS's reactivity system:
+
+```jsx
+import { useActor, fromActorRef } from '@xstate/solid';
+import { createMemo } from 'solid-js';
+import { myMachine } from './myMachine';
+
+export const App = () => {
+  const [, , actorRef] = useActor(myMachine);
+  const snapshot = fromActorRef(actorRef);
+
+  // These memos only re-compute when their accessed properties change
+  const count = createMemo(() => snapshot()?.context.count);
+  const name = createMemo(() => snapshot()?.context.name);
+  const isActive = createMemo(() => snapshot()?.matches('active'));
+
+  return (
+    <div>
+      <p>Count: {count()}</p>
+      <p>Name: {name()}</p>
+      <p>Active: {isActive() ? 'Yes' : 'No'}</p>
+    </div>
+  );
+};
+```
+
+## Undefined Handling
+
+The accessor can return `undefined` if the actor doesn't exist:
+
+```jsx
+import { fromActorRef } from '@xstate/solid';
+import { createSignal, Show } from 'solid-js';
+import { createActor } from 'xstate';
+import { myMachine } from './myMachine';
+
+export const App = () => {
+  const [actorRef, setActorRef] = createSignal();
+  const snapshot = fromActorRef(actorRef);
+
+  const createActor = () => {
+    setActorRef(createActor(myMachine).start());
+  };
+
+  return (
+    <div>
+      <Show when={snapshot()} fallback={<p>No actor</p>}>
+        <p>State: {snapshot()?.value}</p>
+      </Show>
+      <button onclick={createActor}>Create Actor</button>
+    </div>
+  );
+};
+```
+
+## Selecting Specific Values
+
+Derive specific values from the snapshot:
+
+```jsx
+import { useActor, fromActorRef } from '@xstate/solid';
+import { createMemo } from 'solid-js';
+import { largeMachine } from './largeMachine';
+
+export const Username = () => {
+  const [, , actorRef] = useActor(largeMachine);
+  const snapshot = fromActorRef(actorRef);
+
+  // Component only re-renders when username changes
+  const username = createMemo(() => snapshot()?.context.user.name);
+
+  return <div>Username: {username()}</div>;
+};
+
+export const Counter = () => {
+  const [, , actorRef] = useActor(largeMachine);
+  const snapshot = fromActorRef(actorRef);
+
+  // Component only re-renders when count changes
+  const count = createMemo(() => snapshot()?.context.count);
+
+  return <div>Count: {count()}</div>;
+};
+```
+
+## Multiple Snapshots
+
+Subscribe to multiple actors:
+
+```jsx
+import { useActorRef, fromActorRef } from '@xstate/solid';
+import { authMachine, dataMachine } from './machines';
+
+export const Dashboard = () => {
+  const authRef = useActorRef(authMachine);
+  const dataRef = useActorRef(dataMachine);
+
+  const authSnapshot = fromActorRef(authRef);
+  const dataSnapshot = fromActorRef(dataRef);
+
+  return (
+    <div>
+      <p>Auth: {authSnapshot()?.value}</p>
+      <p>Data: {dataSnapshot()?.value}</p>
+    </div>
+  );
+};
+```
+
+## With Effects
+
+Use `createEffect` to react to snapshot changes:
+
+```jsx
+import { useActor, fromActorRef } from '@xstate/solid';
+import { createEffect } from 'solid-js';
+import { myMachine } from './myMachine';
+
+export const App = () => {
+  const [, , actorRef] = useActor(myMachine);
+  const snapshot = fromActorRef(actorRef);
+
+  // Effect runs when snapshot changes
+  createEffect(() => {
+    const current = snapshot();
+    if (current?.matches('success')) {
+      console.log('Success!', current.context);
+    }
+  });
+
+  return <div>{/* ... */}</div>;
+};
+```
+
+## Comparison with useActor
+
+<CodeGroup>
+
+```jsx useActor
+import { useActor } from '@xstate/solid';
+import { myMachine } from './myMachine';
+
+export const App = () => {
+  // Creates actor, returns [snapshot, send, actorRef]
+  const [snapshot, send] = useActor(myMachine);
+
+  return (
+    <div>
+      <p>State: {snapshot.value}</p>
+      <button onclick={() => send({ type: 'NEXT' })}>
+        Next
+      </button>
+    </div>
+  );
+};
+```
+
+```jsx fromActorRef + useActorRef
+import { useActorRef, fromActorRef } from '@xstate/solid';
+import { myMachine } from './myMachine';
+
+export const App = () => {
+  // Create actor ref
+  const actorRef = useActorRef(myMachine);
+  
+  // Subscribe to get snapshot
+  const snapshot = fromActorRef(actorRef);
+
+  return (
+    <div>
+      <p>State: {snapshot()?.value}</p>
+      <button onclick={() => actorRef.send({ type: 'NEXT' })}>
+        Next
+      </button>
+    </div>
+  );
+};
+```
+
+</CodeGroup>
+
+Use `useActor` when you need the full tuple. Use `fromActorRef` when:
+- You already have an actor ref
+- You're working with spawned/child actors
+- You need more control over subscriptions
+
+## TypeScript
+
+The function is fully typed:
+
+```typescript
+import { setup } from 'xstate';
+import { useActor, fromActorRef } from '@xstate/solid';
+import type { Accessor } from 'solid-js';
+
+interface User {
+  id: string;
+  name: string;
+}
+
+const machine = setup({
+  types: {
+    context: {} as {
+      user: User;
+      count: number;
+    }
+  }
+}).createMachine({
+  context: {
+    user: { id: '1', name: 'Alice' },
+    count: 0
+  }
+});
+
+export const App = () => {
+  const [, , actorRef] = useActor(machine);
+  const snapshot = fromActorRef(actorRef);
+
+  // TypeScript infers the snapshot type
+  const userName: Accessor<string | undefined> = () => {
+    return snapshot()?.context.user.name;
+  };
+
+  return <div>User: {userName()}</div>;
+};
+```
+
+## Implementation Details
+
+The `fromActorRef` function:
+
+1. Creates a memo to track the actor ref (if passed as accessor)
+2. Uses `createImmutable` to create a tracked snapshot store
+3. Uses `createEffect` to subscribe to actor changes
+4. Updates the store with new snapshots
+5. Handles actor switching by resubscribing
+6. Automatically unsubscribes on cleanup via `onCleanup`
+7. Returns an accessor function for the current snapshot
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="useActor" icon="play" href="/integrations/solid/use-actor">
+    Create and manage actors with tracked snapshots
+  </Card>
+  <Card title="Solid Integration" icon="cube" href="/integrations/solid/overview">
+    Back to Solid integration overview
+  </Card>
+</CardGroup>

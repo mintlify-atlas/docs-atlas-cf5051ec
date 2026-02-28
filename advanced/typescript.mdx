@@ -1,0 +1,403 @@
+---
+title: TypeScript
+description: Using TypeScript with XState for type-safe state machines and actors
+---
+
+XState is written in TypeScript and provides comprehensive type safety for state machines, actors, and all related APIs. This guide covers advanced TypeScript patterns for working with XState.
+
+## Typing Machines
+
+XState v5 uses TypeScript's type inference to provide strong typing without excessive type annotations. The machine definition itself infers most types automatically.
+
+```typescript
+import { createMachine, assign } from 'xstate';
+
+const toggleMachine = createMachine({
+  types: {} as {
+    context: { count: number };
+    events: 
+      | { type: 'TOGGLE' }
+      | { type: 'INCREMENT'; value: number };
+  },
+  id: 'toggle',
+  initial: 'inactive',
+  context: { count: 0 },
+  states: {
+    inactive: {
+      on: {
+        TOGGLE: 'active'
+      }
+    },
+    active: {
+      entry: assign({
+        count: ({ context, event }) => context.count + 1
+      }),
+      on: {
+        TOGGLE: 'inactive',
+        INCREMENT: {
+          actions: assign({
+            count: ({ context, event }) => context.count + event.value
+          })
+        }
+      }
+    }
+  }
+});
+```
+
+## Using `setup()` for Better Type Inference
+
+The `setup()` function provides the best TypeScript experience by allowing you to define types, actions, guards, and actors in one place:
+
+```typescript
+import { setup, assign } from 'xstate';
+
+const machine = setup({
+  types: {} as {
+    context: { count: number; user: { name: string } | null };
+    events:
+      | { type: 'INCREMENT' }
+      | { type: 'DECREMENT' }
+      | { type: 'SET_USER'; user: { name: string } };
+    input: { initialCount: number };
+    output: { finalCount: number };
+  },
+  actions: {
+    logCount: ({ context }) => {
+      console.log('Count:', context.count);
+    },
+    notifyUser: ({ context }, params: { message: string }) => {
+      console.log(`${context.user?.name}: ${params.message}`);
+    }
+  },
+  guards: {
+    isPositive: ({ context }) => context.count > 0,
+    hasUser: ({ context }) => context.user !== null
+  }
+}).createMachine({
+  id: 'counter',
+  initial: 'counting',
+  context: ({ input }) => ({
+    count: input.initialCount,
+    user: null
+  }),
+  states: {
+    counting: {
+      on: {
+        INCREMENT: {
+          actions: [
+            assign({ count: ({ context }) => context.count + 1 }),
+            'logCount'
+          ]
+        },
+        DECREMENT: {
+          guard: 'isPositive',
+          actions: assign({ count: ({ context }) => context.count - 1 })
+        },
+        SET_USER: {
+          actions: assign({ user: ({ event }) => event.user })
+        }
+      }
+    }
+  },
+  output: ({ context }) => ({ finalCount: context.count })
+});
+```
+
+<Note>
+The `types` property uses TypeScript's `as` assertion with an empty object. This is a type-only construct that doesn't affect runtime behavior.
+</Note>
+
+## Extracting Types from Machines
+
+XState provides utility types to extract types from machines and actors:
+
+### `SnapshotFrom<T>`
+
+Extracts the snapshot type from a machine or actor logic:
+
+```typescript
+import { SnapshotFrom } from 'xstate';
+
+type ToggleSnapshot = SnapshotFrom<typeof toggleMachine>;
+// ToggleSnapshot includes: value, context, status, etc.
+
+function logSnapshot(snapshot: ToggleSnapshot) {
+  console.log(snapshot.value); // 'active' | 'inactive'
+  console.log(snapshot.context.count); // number
+}
+```
+
+### `ActorRefFrom<T>`
+
+Extracts the actor ref type:
+
+```typescript
+import { ActorRefFrom } from 'xstate';
+
+type ToggleActorRef = ActorRefFrom<typeof toggleMachine>;
+
+function useToggle(actorRef: ToggleActorRef) {
+  actorRef.send({ type: 'TOGGLE' });
+  const snapshot = actorRef.getSnapshot();
+}
+```
+
+### `EventFrom<T>` and `InputFrom<T>`
+
+Extract event and input types:
+
+```typescript
+import { EventFrom, InputFrom } from 'xstate';
+
+type ToggleEvent = EventFrom<typeof toggleMachine>;
+// { type: 'TOGGLE' } | { type: 'INCREMENT'; value: number }
+
+type ToggleInput = InputFrom<typeof machine>;
+// { initialCount: number }
+```
+
+## Typing Actions
+
+Actions can be strongly typed using the `ActionFunction` type:
+
+```typescript
+import { ActionFunction } from 'xstate';
+
+type Context = { count: number };
+type Event = { type: 'INCREMENT'; value: number };
+
+const incrementAction: ActionFunction<
+  Context,
+  Event,
+  Event,
+  { by: number }, // params
+  any, // TActor
+  any, // TAction
+  any, // TGuard  
+  any, // TDelay
+  any  // TEmitted
+> = ({ context, event }, params) => {
+  console.log(`Incrementing by ${params.by}`);
+};
+```
+
+<Tip>
+When using `setup()`, action types are inferred automatically. Manual typing is only needed for standalone actions.
+</Tip>
+
+## Typing Guards
+
+Guards use the `Guard` or `GuardPredicate` types:
+
+```typescript
+import { GuardPredicate } from 'xstate';
+
+type Context = { count: number };
+type Event = { type: 'CHECK' };
+
+const isEven: GuardPredicate<Context, Event> = ({ context }) => {
+  return context.count % 2 === 0;
+};
+```
+
+## Typing Actors
+
+Child actors can be strongly typed using the `ProvidedActor` interface:
+
+```typescript
+import { setup, fromPromise } from 'xstate';
+
+const fetchUser = fromPromise(async ({ input }: { input: { userId: string } }) => {
+  const response = await fetch(`/api/users/${input.userId}`);
+  return response.json() as Promise<{ id: string; name: string }>;
+});
+
+const machine = setup({
+  types: {} as {
+    context: { user: { id: string; name: string } | null };
+    events: { type: 'FETCH'; userId: string };
+  },
+  actors: {
+    fetchUser
+  }
+}).createMachine({
+  initial: 'idle',
+  context: { user: null },
+  states: {
+    idle: {
+      on: {
+        FETCH: 'loading'
+      }
+    },
+    loading: {
+      invoke: {
+        src: 'fetchUser',
+        input: ({ event }) => ({ userId: event.userId }),
+        onDone: {
+          target: 'success',
+          actions: assign({
+            user: ({ event }) => event.output // fully typed!
+          })
+        },
+        onError: 'failure'
+      }
+    },
+    success: {},
+    failure: {}
+  }
+});
+```
+
+## Advanced Type Patterns
+
+### Discriminated Unions for Events
+
+Use TypeScript's discriminated unions for type-safe event handling:
+
+```typescript
+type Event =
+  | { type: 'SUBMIT'; data: { email: string; password: string } }
+  | { type: 'CANCEL' }
+  | { type: 'RETRY'; attemptNumber: number };
+
+const machine = createMachine({
+  types: {} as { events: Event },
+  // ...
+  states: {
+    form: {
+      on: {
+        SUBMIT: {
+          actions: ({ event }) => {
+            // event.data is available and typed
+            console.log(event.data.email);
+          }
+        },
+        RETRY: {
+          actions: ({ event }) => {
+            // event.attemptNumber is available and typed
+            console.log(event.attemptNumber);
+          }
+        }
+      }
+    }
+  }
+});
+```
+
+### Type-Safe State Matching
+
+Use type predicates for state matching:
+
+```typescript
+import { SnapshotFrom } from 'xstate';
+
+type Snapshot = SnapshotFrom<typeof machine>;
+
+function isLoadingState(snapshot: Snapshot): snapshot is Snapshot & { value: 'loading' } {
+  return snapshot.matches('loading');
+}
+
+const snapshot = actor.getSnapshot();
+if (isLoadingState(snapshot)) {
+  // TypeScript knows we're in loading state
+  console.log('Loading...');
+}
+```
+
+### Conditional Context Types
+
+Different states can have different context shapes:
+
+```typescript
+type Context =
+  | { status: 'idle'; data: null; error: null }
+  | { status: 'loading'; data: null; error: null }
+  | { status: 'success'; data: string[]; error: null }
+  | { status: 'failure'; data: null; error: Error };
+
+const machine = createMachine({
+  types: {} as { context: Context },
+  initial: 'idle',
+  context: { status: 'idle', data: null, error: null },
+  states: {
+    idle: {},
+    loading: {
+      entry: assign({ status: 'loading' })
+    },
+    success: {
+      entry: assign(({ event }: any) => ({
+        status: 'success',
+        data: event.output,
+        error: null
+      }))
+    },
+    failure: {
+      entry: assign(({ event }: any) => ({
+        status: 'failure',
+        data: null,
+        error: event.error
+      }))
+    }
+  }
+});
+```
+
+<Warning>
+Avoid using `any` in production code. The examples above use `any` for brevity, but you should always provide explicit types.
+</Warning>
+
+## Common Type Utilities
+
+XState exports many utility types from `types.ts:1-2000`:
+
+- `MachineContext` - Base type for machine context
+- `EventObject` - Base type for events
+- `StateValue` - Type for state values (string or nested object)
+- `ActorRef` - Reference to an actor
+- `ActorRefFrom<T>` - Extract actor ref type
+- `SnapshotFrom<T>` - Extract snapshot type
+- `EventFrom<T>` - Extract event type
+- `InputFrom<T>` - Extract input type
+- `OutputFrom<T>` - Extract output type
+
+## Troubleshooting
+
+### Type inference not working
+
+If TypeScript can't infer types:
+
+1. Use `setup()` instead of `createMachine()` directly
+2. Ensure `types` property is defined at the top level
+3. Check that TypeScript version is 5.0 or higher
+
+### Circular type references
+
+If you encounter circular type references:
+
+```typescript
+// Use type aliases to break the cycle
+type MyContext = { count: number };
+type MyEvents = { type: 'INCREMENT' };
+
+const machine = setup({
+  types: {} as {
+    context: MyContext;
+    events: MyEvents;
+  }
+}).createMachine({ /* ... */ });
+```
+
+### Param types not inferred
+
+Params must be explicitly typed in `setup()`:
+
+```typescript
+setup({
+  actions: {
+    notify: ({}, params: { message: string }) => {
+      console.log(params.message);
+    }
+  }
+});
+```

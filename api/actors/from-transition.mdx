@@ -1,0 +1,520 @@
+---
+title: fromTransition()
+description: Create actor logic from a reducer-style transition function
+---
+
+The `fromTransition()` function creates actor logic from a transition function and initial state. This is useful for reducer-style state management similar to Redux or useReducer.
+
+## Signature
+
+```ts
+function fromTransition<
+  TContext,
+  TEvent extends EventObject,
+  TSystem extends AnyActorSystem,
+  TInput extends NonReducibleUnknown,
+  TEmitted extends EventObject = EventObject
+>(
+  transition: (
+    snapshot: TContext,
+    event: TEvent,
+    actorScope: ActorScope<TransitionSnapshot<TContext>, TEvent, TSystem, TEmitted>
+  ) => TContext,
+  initialContext:
+    | TContext
+    | (({ input, self }: {
+        input: TInput;
+        self: TransitionActorRef<TContext, TEvent>;
+      }) => TContext)
+): TransitionActorLogic<TContext, TEvent, TInput, TEmitted>;
+```
+
+## Parameters
+
+<ParamField path="transition" type="function" required>
+  A transition function that takes the current state and event, and returns the next state. Similar to a reducer.
+  
+  <ParamField path="snapshot" type="TContext">
+    The current state/context.
+  </ParamField>
+  
+  <ParamField path="event" type="TEvent">
+    The event that triggered the transition.
+  </ParamField>
+  
+  <ParamField path="actorScope" type="ActorScope">
+    Object containing `self`, `system`, and `emit` for advanced use cases.
+  </ParamField>
+</ParamField>
+
+<ParamField path="initialContext" type="TContext | function" required>
+  The initial state, either as a value or a function that returns the initial state.
+  
+  If a function, it receives:
+  - `input` - Data provided when creating the actor
+  - `self` - Reference to the actor itself
+</ParamField>
+
+## Returns
+
+<ResponseField name="TransitionActorLogic" type="ActorLogic">
+  Actor logic that can be used with `createActor()` or invoked in a state machine.
+</ResponseField>
+
+## Usage
+
+### Basic Counter
+
+```ts
+import { fromTransition, createActor } from 'xstate';
+
+type Context = { count: number };
+type Event = 
+  | { type: 'INCREMENT' }
+  | { type: 'DECREMENT' }
+  | { type: 'SET'; value: number };
+
+const counterLogic = fromTransition<Context, Event, any, void>(
+  (state, event) => {
+    switch (event.type) {
+      case 'INCREMENT':
+        return { count: state.count + 1 };
+      case 'DECREMENT':
+        return { count: state.count - 1 };
+      case 'SET':
+        return { count: event.value };
+      default:
+        return state;
+    }
+  },
+  { count: 0 }
+);
+
+const actor = createActor(counterLogic);
+
+actor.subscribe((snapshot) => {
+  console.log('Count:', snapshot.context.count);
+});
+
+actor.start();
+// Count: 0
+
+actor.send({ type: 'INCREMENT' });
+// Count: 1
+
+actor.send({ type: 'INCREMENT' });
+// Count: 2
+
+actor.send({ type: 'SET', value: 10 });
+// Count: 10
+```
+
+### With Input
+
+```ts
+import { fromTransition, createActor } from 'xstate';
+
+type Context = {
+  count: number;
+  step: number;
+};
+
+type Event = { type: 'INCREMENT' } | { type: 'DECREMENT' };
+type Input = { initialCount?: number; step?: number };
+
+const counterLogic = fromTransition<Context, Event, any, Input>(
+  (state, event) => {
+    switch (event.type) {
+      case 'INCREMENT':
+        return { ...state, count: state.count + state.step };
+      case 'DECREMENT':
+        return { ...state, count: state.count - state.step };
+      default:
+        return state;
+    }
+  },
+  ({ input }) => ({
+    count: input.initialCount ?? 0,
+    step: input.step ?? 1
+  })
+);
+
+const actor = createActor(counterLogic, {
+  input: { initialCount: 10, step: 5 }
+});
+
+actor.subscribe((snapshot) => {
+  console.log(snapshot.context);
+});
+
+actor.start();
+// { count: 10, step: 5 }
+
+actor.send({ type: 'INCREMENT' });
+// { count: 15, step: 5 }
+```
+
+### Todo List
+
+```ts
+import { fromTransition, createActor } from 'xstate';
+
+type Todo = {
+  id: string;
+  text: string;
+  completed: boolean;
+};
+
+type Context = {
+  todos: Todo[];
+};
+
+type Event = 
+  | { type: 'ADD'; text: string }
+  | { type: 'TOGGLE'; id: string }
+  | { type: 'DELETE'; id: string }
+  | { type: 'CLEAR_COMPLETED' };
+
+const todoLogic = fromTransition<Context, Event, any, void>(
+  (state, event) => {
+    switch (event.type) {
+      case 'ADD':
+        return {
+          todos: [
+            ...state.todos,
+            {
+              id: Math.random().toString(36),
+              text: event.text,
+              completed: false
+            }
+          ]
+        };
+      
+      case 'TOGGLE':
+        return {
+          todos: state.todos.map(todo =>
+            todo.id === event.id
+              ? { ...todo, completed: !todo.completed }
+              : todo
+          )
+        };
+      
+      case 'DELETE':
+        return {
+          todos: state.todos.filter(todo => todo.id !== event.id)
+        };
+      
+      case 'CLEAR_COMPLETED':
+        return {
+          todos: state.todos.filter(todo => !todo.completed)
+        };
+      
+      default:
+        return state;
+    }
+  },
+  { todos: [] }
+);
+
+const actor = createActor(todoLogic);
+actor.start();
+
+actor.send({ type: 'ADD', text: 'Learn XState' });
+actor.send({ type: 'ADD', text: 'Build an app' });
+```
+
+### Form State Management
+
+```ts
+import { fromTransition, createActor } from 'xstate';
+
+type Context = {
+  values: Record<string, string>;
+  errors: Record<string, string>;
+  touched: Record<string, boolean>;
+};
+
+type Event = 
+  | { type: 'CHANGE'; field: string; value: string }
+  | { type: 'BLUR'; field: string }
+  | { type: 'VALIDATE' }
+  | { type: 'RESET' };
+
+function validate(values: Record<string, string>) {
+  const errors: Record<string, string> = {};
+  
+  if (!values.email) {
+    errors.email = 'Email is required';
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email)) {
+    errors.email = 'Invalid email address';
+  }
+  
+  if (!values.password) {
+    errors.password = 'Password is required';
+  } else if (values.password.length < 8) {
+    errors.password = 'Password must be at least 8 characters';
+  }
+  
+  return errors;
+}
+
+const formLogic = fromTransition<Context, Event, any, void>(
+  (state, event) => {
+    switch (event.type) {
+      case 'CHANGE':
+        return {
+          ...state,
+          values: {
+            ...state.values,
+            [event.field]: event.value
+          }
+        };
+      
+      case 'BLUR':
+        return {
+          ...state,
+          touched: {
+            ...state.touched,
+            [event.field]: true
+          }
+        };
+      
+      case 'VALIDATE':
+        return {
+          ...state,
+          errors: validate(state.values)
+        };
+      
+      case 'RESET':
+        return {
+          values: {},
+          errors: {},
+          touched: {}
+        };
+      
+      default:
+        return state;
+    }
+  },
+  { values: {}, errors: {}, touched: {} }
+);
+```
+
+### Using Actor Scope
+
+```ts
+import { fromTransition, createActor } from 'xstate';
+
+type Context = { count: number };
+type Event = { type: 'INCREMENT' };
+type EmittedEvent = { type: 'milestone'; value: number };
+
+const counterLogic = fromTransition<Context, Event, any, void, EmittedEvent>(
+  (state, event, { emit, self }) => {
+    if (event.type === 'INCREMENT') {
+      const newCount = state.count + 1;
+      
+      // Emit milestone events
+      if (newCount % 10 === 0) {
+        emit({ type: 'milestone', value: newCount });
+      }
+      
+      return { count: newCount };
+    }
+    return state;
+  },
+  { count: 0 }
+);
+
+const actor = createActor(counterLogic);
+
+actor.on('milestone', (event) => {
+  console.log('Milestone reached:', event.value);
+});
+
+actor.start();
+
+for (let i = 0; i < 25; i++) {
+  actor.send({ type: 'INCREMENT' });
+}
+// Milestone reached: 10
+// Milestone reached: 20
+```
+
+### Invoking in a Machine
+
+```ts
+import { setup, fromTransition } from 'xstate';
+
+type CounterContext = { count: number };
+type CounterEvent = { type: 'INCREMENT' } | { type: 'DECREMENT' };
+
+const counterLogic = fromTransition<CounterContext, CounterEvent, any, void>(
+  (state, event) => {
+    switch (event.type) {
+      case 'INCREMENT':
+        return { count: state.count + 1 };
+      case 'DECREMENT':
+        return { count: state.count - 1 };
+      default:
+        return state;
+    }
+  },
+  { count: 0 }
+);
+
+const machine = setup({
+  actors: {
+    counter: counterLogic
+  }
+}).createMachine({
+  initial: 'active',
+  states: {
+    active: {
+      invoke: {
+        id: 'counter',
+        src: 'counter'
+      },
+      on: {
+        INCREMENT: {
+          actions: sendTo('counter', { type: 'INCREMENT' })
+        },
+        DECREMENT: {
+          actions: sendTo('counter', { type: 'DECREMENT' })
+        }
+      }
+    }
+  }
+});
+```
+
+### Shopping Cart
+
+```ts
+import { fromTransition } from 'xstate';
+
+type Item = {
+  id: string;
+  name: string;
+  price: number;
+  quantity: number;
+};
+
+type Context = {
+  items: Item[];
+  total: number;
+};
+
+type Event = 
+  | { type: 'ADD_ITEM'; item: Omit<Item, 'quantity'> }
+  | { type: 'REMOVE_ITEM'; id: string }
+  | { type: 'UPDATE_QUANTITY'; id: string; quantity: number }
+  | { type: 'CLEAR' };
+
+function calculateTotal(items: Item[]): number {
+  return items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+}
+
+const cartLogic = fromTransition<Context, Event, any, void>(
+  (state, event) => {
+    let items: Item[];
+    
+    switch (event.type) {
+      case 'ADD_ITEM': {
+        const existing = state.items.find(i => i.id === event.item.id);
+        if (existing) {
+          items = state.items.map(i =>
+            i.id === event.item.id
+              ? { ...i, quantity: i.quantity + 1 }
+              : i
+          );
+        } else {
+          items = [...state.items, { ...event.item, quantity: 1 }];
+        }
+        break;
+      }
+      
+      case 'REMOVE_ITEM':
+        items = state.items.filter(i => i.id !== event.id);
+        break;
+      
+      case 'UPDATE_QUANTITY':
+        items = state.items.map(i =>
+          i.id === event.id ? { ...i, quantity: event.quantity } : i
+        ).filter(i => i.quantity > 0);
+        break;
+      
+      case 'CLEAR':
+        items = [];
+        break;
+      
+      default:
+        return state;
+    }
+    
+    return {
+      items,
+      total: calculateTotal(items)
+    };
+  },
+  { items: [], total: 0 }
+);
+```
+
+## Snapshot
+
+The transition actor snapshot has the following structure:
+
+```ts
+interface TransitionSnapshot<TContext> {
+  status: 'active';
+  context: TContext;
+  output: undefined;
+  error: undefined;
+}
+```
+
+## Behavior
+
+- **Always active**: Transition actors remain in `active` status
+- **Synchronous updates**: State updates happen synchronously
+- **Event-driven**: State changes only occur in response to events
+- **No completion**: Transition actors don't complete or produce output
+- **Pure transitions**: Transition functions should be pure (no side effects)
+
+## Type Parameters
+
+<ParamField path="TContext" type="type">
+  The type of the state/context.
+</ParamField>
+
+<ParamField path="TEvent" type="EventObject">
+  The type of events the actor can receive.
+</ParamField>
+
+<ParamField path="TSystem" type="AnyActorSystem">
+  The actor system type.
+</ParamField>
+
+<ParamField path="TInput" type="type" default="NonReducibleUnknown">
+  The type of the input data.
+</ParamField>
+
+<ParamField path="TEmitted" type="EventObject" default="EventObject">
+  The type of events that can be emitted.
+</ParamField>
+
+## Best Practices
+
+1. **Keep transitions pure**: Avoid side effects in the transition function
+2. **Return new objects**: Always return new state objects rather than mutating
+3. **Use discriminated unions**: Type events with discriminated unions for type safety
+4. **Handle all events**: Include a default case to handle unknown events
+5. **Calculate derived state**: Compute derived values in the transition function
+
+## See Also
+
+- [fromPromise](/api/actors/from-promise) - For one-time async operations
+- [fromCallback](/api/actors/from-callback) - For subscription-based logic
+- [fromObservable](/api/actors/from-observable) - For reactive streams
+- [Actors Overview](/api/actors/overview) - Introduction to actors

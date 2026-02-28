@@ -1,0 +1,553 @@
+---
+title: createActorContext
+description: Create React context for sharing actors across components
+---
+
+The `createActorContext` function creates a React context with type-safe hooks for sharing an actor across your component tree. This enables global state management without prop drilling.
+
+## Type Signature
+
+```typescript
+function createActorContext<TLogic extends AnyActorLogic>(
+  actorLogic: TLogic,
+  actorOptions?: ActorOptions<TLogic>
+): {
+  useSelector: <T>(
+    selector: (snapshot: SnapshotFrom<TLogic>) => T,
+    compare?: (a: T, b: T) => boolean
+  ) => T;
+  useActorRef: () => Actor<TLogic>;
+  Provider: (props: {
+    children: React.ReactNode;
+    options?: ActorOptions<TLogic>;
+    logic?: TLogic;
+  }) => React.ReactElement;
+}
+```
+
+## Parameters
+
+- **`actorLogic`** - The actor logic (machine) to create the context for
+- **`actorOptions`** *(optional)* - Default actor options (can be overridden by Provider)
+
+## Return Value
+
+Returns an object with three properties:
+
+- **`Provider`** - React component to provide the actor to children
+- **`useActorRef`** - Hook to access the actor reference
+- **`useSelector`** - Hook to subscribe to derived state
+
+## Basic Usage
+
+### Simple Global State
+
+```tsx
+import { createActorContext } from '@xstate/react';
+import { createMachine, assign } from 'xstate';
+
+const counterMachine = createMachine({
+  context: { count: 0 },
+  on: {
+    INCREMENT: {
+      actions: assign({
+        count: ({ context }) => context.count + 1
+      })
+    },
+    DECREMENT: {
+      actions: assign({
+        count: ({ context }) => context.count - 1
+      })
+    }
+  }
+});
+
+const CounterContext = createActorContext(counterMachine);
+
+function App() {
+  return (
+    <CounterContext.Provider>
+      <CounterDisplay />
+      <CounterControls />
+    </CounterContext.Provider>
+  );
+}
+
+function CounterDisplay() {
+  const count = CounterContext.useSelector((state) => state.context.count);
+  return <div>Count: {count}</div>;
+}
+
+function CounterControls() {
+  const actorRef = CounterContext.useActorRef();
+  
+  return (
+    <div>
+      <button onClick={() => actorRef.send({ type: 'INCREMENT' })}>+</button>
+      <button onClick={() => actorRef.send({ type: 'DECREMENT' })}>-</button>
+    </div>
+  );
+}
+```
+
+### With Initial Options
+
+```tsx
+import { createActorContext } from '@xstate/react';
+import { createMachine, assign } from 'xstate';
+
+const timerMachine = createMachine({
+  types: {} as {
+    input: { duration: number };
+    context: { duration: number; elapsed: number };
+  },
+  context: ({ input }) => ({
+    duration: input.duration,
+    elapsed: 0
+  }),
+  initial: 'running',
+  states: {
+    running: {
+      on: {
+        TICK: {
+          actions: assign({
+            elapsed: ({ context }) => context.elapsed + 1
+          })
+        },
+        PAUSE: 'paused'
+      }
+    },
+    paused: {
+      on: {
+        RESUME: 'running'
+      }
+    }
+  }
+});
+
+// Create context with default options
+const TimerContext = createActorContext(timerMachine, {
+  input: { duration: 60 }
+});
+
+function App() {
+  // Can override options in Provider
+  return (
+    <TimerContext.Provider options={{ input: { duration: 120 } }}>
+      <Timer />
+    </TimerContext.Provider>
+  );
+}
+
+function Timer() {
+  const elapsed = TimerContext.useSelector((state) => state.context.elapsed);
+  const duration = TimerContext.useSelector((state) => state.context.duration);
+  const actorRef = TimerContext.useActorRef();
+  
+  return (
+    <div>
+      <div>{elapsed} / {duration}</div>
+      <button onClick={() => actorRef.send({ type: 'PAUSE' })}>Pause</button>
+      <button onClick={() => actorRef.send({ type: 'RESUME' })}>Resume</button>
+    </div>
+  );
+}
+```
+
+## Advanced Usage
+
+### Authentication Context
+
+```tsx
+import { createActorContext } from '@xstate/react';
+import { createMachine, assign, fromPromise } from 'xstate';
+
+const loginUser = fromPromise(async ({ input }: { 
+  input: { email: string; password: string } 
+}) => {
+  const response = await fetch('/api/login', {
+    method: 'POST',
+    body: JSON.stringify(input)
+  });
+  return response.json();
+});
+
+const authMachine = createMachine({
+  id: 'auth',
+  initial: 'loggedOut',
+  context: {
+    user: null,
+    error: null
+  },
+  states: {
+    loggedOut: {
+      on: {
+        LOGIN: 'loggingIn'
+      }
+    },
+    loggingIn: {
+      invoke: {
+        src: loginUser,
+        input: ({ event }) => ({
+          email: event.email,
+          password: event.password
+        }),
+        onDone: {
+          target: 'loggedIn',
+          actions: assign({
+            user: ({ event }) => event.output
+          })
+        },
+        onError: {
+          target: 'loggedOut',
+          actions: assign({
+            error: ({ event }) => event.error
+          })
+        }
+      }
+    },
+    loggedIn: {
+      on: {
+        LOGOUT: {
+          target: 'loggedOut',
+          actions: assign({
+            user: null,
+            error: null
+          })
+        }
+      }
+    }
+  }
+});
+
+const AuthContext = createActorContext(authMachine);
+
+function App() {
+  return (
+    <AuthContext.Provider>
+      <AuthGuard>
+        <Dashboard />
+      </AuthGuard>
+    </AuthContext.Provider>
+  );
+}
+
+function AuthGuard({ children }) {
+  const isLoggedIn = AuthContext.useSelector(
+    (state) => state.matches('loggedIn')
+  );
+  
+  if (!isLoggedIn) {
+    return <LoginForm />;
+  }
+  
+  return children;
+}
+
+function LoginForm() {
+  const actorRef = AuthContext.useActorRef();
+  const error = AuthContext.useSelector((state) => state.context.error);
+  
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    actorRef.send({
+      type: 'LOGIN',
+      email: formData.get('email'),
+      password: formData.get('password')
+    });
+  };
+  
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <div>Error: {error.message}</div>}
+      <input name="email" type="email" required />
+      <input name="password" type="password" required />
+      <button type="submit">Login</button>
+    </form>
+  );
+}
+
+function Dashboard() {
+  const user = AuthContext.useSelector((state) => state.context.user);
+  const actorRef = AuthContext.useActorRef();
+  
+  return (
+    <div>
+      <h1>Welcome, {user.name}!</h1>
+      <button onClick={() => actorRef.send({ type: 'LOGOUT' })}>
+        Logout
+      </button>
+    </div>
+  );
+}
+```
+
+### Multiple Contexts
+
+```tsx
+import { createActorContext } from '@xstate/react';
+import { createMachine, assign } from 'xstate';
+
+const userMachine = createMachine({
+  context: { user: null },
+  initial: 'idle',
+  states: { idle: {} }
+});
+
+const themeMachine = createMachine({
+  context: { theme: 'light' },
+  on: {
+    TOGGLE_THEME: {
+      actions: assign({
+        theme: ({ context }) => 
+          context.theme === 'light' ? 'dark' : 'light'
+      })
+    }
+  }
+});
+
+const UserContext = createActorContext(userMachine);
+const ThemeContext = createActorContext(themeMachine);
+
+function App() {
+  return (
+    <UserContext.Provider>
+      <ThemeContext.Provider>
+        <Layout>
+          <Content />
+        </Layout>
+      </ThemeContext.Provider>
+    </UserContext.Provider>
+  );
+}
+
+function Layout({ children }) {
+  const theme = ThemeContext.useSelector((state) => state.context.theme);
+  
+  return (
+    <div className={theme}>
+      <Header />
+      {children}
+    </div>
+  );
+}
+
+function Header() {
+  const user = UserContext.useSelector((state) => state.context.user);
+  const themeRef = ThemeContext.useActorRef();
+  
+  return (
+    <header>
+      <div>{user?.name ?? 'Guest'}</div>
+      <button onClick={() => themeRef.send({ type: 'TOGGLE_THEME' })}>
+        Toggle Theme
+      </button>
+    </header>
+  );
+}
+```
+
+### Dynamic Logic
+
+```tsx
+import { createActorContext } from '@xstate/react';
+import { createMachine, assign } from 'xstate';
+
+const defaultMachine = createMachine({
+  context: { value: 0 },
+  on: {
+    INCREMENT: {
+      actions: assign({ value: ({ context }) => context.value + 1 })
+    }
+  }
+});
+
+const ConfigContext = createActorContext(defaultMachine);
+
+function App() {
+  const [customMachine, setCustomMachine] = useState(defaultMachine);
+  
+  return (
+    <ConfigContext.Provider logic={customMachine}>
+      <Counter />
+      <MachineSelector onSelect={setCustomMachine} />
+    </ConfigContext.Provider>
+  );
+}
+
+function Counter() {
+  const value = ConfigContext.useSelector((state) => state.context.value);
+  const actorRef = ConfigContext.useActorRef();
+  
+  return (
+    <div>
+      <div>Value: {value}</div>
+      <button onClick={() => actorRef.send({ type: 'INCREMENT' })}
+        Increment
+      </button>
+    </div>
+  );
+}
+```
+
+### Nested Providers
+
+```tsx
+import { createActorContext } from '@xstate/react';
+import { createMachine } from 'xstate';
+
+const modalMachine = createMachine({
+  initial: 'closed',
+  states: {
+    closed: {
+      on: { OPEN: 'open' }
+    },
+    open: {
+      on: { CLOSE: 'closed' }
+    }
+  }
+});
+
+const ModalContext = createActorContext(modalMachine);
+
+function App() {
+  return (
+    <ModalContext.Provider>
+      <Page>
+        <ModalContext.Provider>
+          <NestedModal />
+        </ModalContext.Provider>
+      </Page>
+    </ModalContext.Provider>
+  );
+}
+
+function Page() {
+  const actorRef = ModalContext.useActorRef();
+  const isOpen = ModalContext.useSelector((state) => state.matches('open'));
+  
+  return (
+    <div>
+      <button onClick={() => actorRef.send({ type: 'OPEN' })}>
+        Open Modal
+      </button>
+      {isOpen && (
+        <div className="modal">
+          <button onClick={() => actorRef.send({ type: 'CLOSE' })}>
+            Close
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NestedModal() {
+  // This uses the nested Provider's actor
+  const actorRef = ModalContext.useActorRef();
+  const isOpen = ModalContext.useSelector((state) => state.matches('open'));
+  
+  return (
+    <div>
+      <button onClick={() => actorRef.send({ type: 'OPEN' })}>
+        Open Nested Modal
+      </button>
+      {isOpen && <div className="nested-modal">Nested content</div>}
+    </div>
+  );
+}
+```
+
+## Error Handling
+
+```tsx
+import { createActorContext } from '@xstate/react';
+import { createMachine } from 'xstate';
+
+const SomeContext = createActorContext(someMachine);
+
+function ComponentOutsideProvider() {
+  // Throws error: hook used outside of Provider
+  const actorRef = SomeContext.useActorRef();
+  
+  return <div>This will error</div>;
+}
+
+function App() {
+  return (
+    <div>
+      {/* This will throw an error */}
+      <ComponentOutsideProvider />
+      
+      {/* Correct usage */}
+      <SomeContext.Provider>
+        <ComponentInsideProvider />
+      </SomeContext.Provider>
+    </div>
+  );
+}
+```
+
+The error message will be:
+```
+You used a hook from "ActorProvider" but it's not inside a <ActorProvider> component.
+```
+
+## Provider Props
+
+```tsx
+interface ProviderProps {
+  children: React.ReactNode;
+  logic?: TLogic;              // Override the default logic
+  options?: ActorOptions<TLogic>; // Override/extend default options
+}
+```
+
+## Important Notes
+
+- Each `Provider` creates a new actor instance
+- Nested providers create independent actors
+- The `useActorRef` and `useSelector` hooks must be used within a Provider
+- Using hooks outside a Provider throws a descriptive error
+- The actor is automatically started when Provider mounts
+- The actor is automatically stopped when Provider unmounts
+- Options from Provider override options from `createActorContext`
+
+## TypeScript Support
+
+The context is fully typed based on the logic:
+
+```tsx
+import { createActorContext } from '@xstate/react';
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  types: {} as {
+    context: { count: number };
+    events: { type: 'INCREMENT' } | { type: 'DECREMENT' };
+  },
+  context: { count: 0 }
+});
+
+const Context = createActorContext(machine);
+
+function Component() {
+  const actorRef = Context.useActorRef();
+  
+  // TypeScript knows about valid events
+  actorRef.send({ type: 'INCREMENT' }); // ✓
+  actorRef.send({ type: 'INVALID' }); // ✗ Type error
+  
+  // Selector is typed
+  const count = Context.useSelector(
+    (state) => state.context.count // ✓ TypeScript knows count is number
+  );
+}
+```
+
+## See Also
+
+- [useActor](/integrations/react/use-actor) - Create and subscribe to an actor
+- [useActorRef](/integrations/react/use-actor-ref) - Create an actor without subscribing
+- [useSelector](/integrations/react/use-selector) - Subscribe to derived state

@@ -1,0 +1,340 @@
+---
+title: Actions
+description: Execute side effects with actions in XState
+---
+
+Actions are fire-and-forget side effects that execute in response to state transitions. They represent the **effects** of moving between states and do not affect the state machine's behavior.
+
+## What are Actions?
+
+Actions are functions that produce side effects but do not return values that affect the machine's state. Common examples include:
+
+- Updating context with `assign`
+- Sending events to actors
+- Logging
+- Triggering external API calls
+- Updating UI
+
+<Note>
+Actions are declarative and executed automatically by the XState interpreter. They should not be called directly in your code.
+</Note>
+
+## Entry and Exit Actions
+
+States can define actions that execute when entering or exiting that state.
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  id: 'toggle',
+  initial: 'inactive',
+  context: {
+    count: 0
+  },
+  states: {
+    inactive: {
+      on: {
+        TOGGLE: { target: 'active' }
+      }
+    },
+    active: {
+      entry: () => console.log('Entering active state'),
+      exit: () => console.log('Leaving active state'),
+      on: {
+        TOGGLE: { target: 'inactive' }
+      }
+    }
+  }
+});
+
+const actor = createActor(machine);
+actor.start();
+actor.send({ type: 'TOGGLE' });
+// logs: "Entering active state"
+
+actor.send({ type: 'TOGGLE' });
+// logs: "Leaving active state"
+```
+
+## Transition Actions
+
+Actions can be executed as part of a transition, running when the transition is taken.
+
+```typescript
+import { createMachine, createActor, assign } from 'xstate';
+
+const countMachine = createMachine({
+  initial: 'counting',
+  context: { count: 0 },
+  states: {
+    counting: {
+      on: {
+        INCREMENT: {
+          actions: assign({ count: ({ context }) => context.count + 1 })
+        },
+        DECREMENT: {
+          actions: assign({ count: ({ context }) => context.count - 1 })
+        }
+      }
+    }
+  }
+});
+```
+
+## Built-in Actions
+
+XState provides several built-in action creators:
+
+<Steps>
+
+### assign
+
+Updates the machine's context.
+
+```typescript
+import { createMachine, assign } from 'xstate';
+
+const machine = createMachine({
+  context: {
+    count: 0,
+    message: ''
+  },
+  on: {
+    inc: {
+      actions: assign({
+        count: ({ context }) => context.count + 1
+      })
+    },
+    updateMessage: {
+      actions: assign(({ context, event }) => {
+        return {
+          message: event.message.trim()
+        };
+      })
+    }
+  }
+});
+```
+
+### raise
+
+Raises an event internally, placing it in the internal event queue.
+
+```typescript
+import { createMachine, raise } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        START: {
+          target: 'running',
+          actions: raise({ type: 'INTERNAL_START' })
+        }
+      }
+    },
+    running: {
+      on: {
+        INTERNAL_START: {
+          actions: () => console.log('Machine started!')
+        }
+      }
+    }
+  }
+});
+```
+
+### sendTo
+
+Sends an event to another actor.
+
+```typescript
+import { createMachine, sendTo, createActor, fromPromise } from 'xstate';
+
+const childActor = fromPromise(async () => {
+  return { data: 'result' };
+});
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        START: {
+          actions: sendTo('childRef', { type: 'GO' })
+        }
+      }
+    }
+  }
+});
+```
+
+### log
+
+Logs values to the console.
+
+```typescript
+import { createMachine, log } from 'xstate';
+
+const machine = createMachine({
+  context: { count: 0 },
+  on: {
+    EVENT: {
+      actions: [
+        log('Event received'),
+        log(({ context, event }) => ({ context, event }), 'State info')
+      ]
+    }
+  }
+});
+```
+
+### emit
+
+Emits an event to external listeners registered via `actor.on()`.
+
+```typescript
+import { createMachine, emit, createActor } from 'xstate';
+
+const machine = createMachine({
+  on: {
+    something: {
+      actions: emit({
+        type: 'emitted',
+        some: 'data'
+      })
+    }
+  }
+});
+
+const actor = createActor(machine).start();
+
+actor.on('emitted', (event) => {
+  console.log(event);
+  // { type: 'emitted', some: 'data' }
+});
+
+actor.send({ type: 'something' });
+```
+
+### cancel
+
+Cancels a delayed `sendTo()` or `raise()` action.
+
+```typescript
+import { createMachine, sendTo, cancel } from 'xstate';
+
+const machine = createMachine({
+  on: {
+    sendEvent: {
+      actions: sendTo(
+        'some-actor',
+        { type: 'someEvent' },
+        {
+          id: 'some-id',
+          delay: 1000
+        }
+      )
+    },
+    cancelEvent: {
+      actions: cancel('some-id')
+    }
+  }
+});
+```
+
+</Steps>
+
+## Multiple Actions
+
+You can execute multiple actions in sequence by providing an array:
+
+```typescript
+import { createMachine, assign, log } from 'xstate';
+
+const machine = createMachine({
+  context: { count: 0 },
+  on: {
+    INCREMENT: {
+      actions: [
+        assign({ count: ({ context }) => context.count + 1 }),
+        log(({ context }) => `Count is now ${context.count}`)
+      ]
+    }
+  }
+});
+```
+
+## Dynamic Actions with enqueueActions
+
+For conditional or dynamic action execution, use `enqueueActions`:
+
+```typescript
+import { createMachine, enqueueActions, assign } from 'xstate';
+
+const machine = createMachine({
+  context: { count: 0, hasError: false },
+  entry: enqueueActions(({ enqueue, check, context }) => {
+    enqueue.assign({ count: 0 });
+
+    if (check({ type: 'isEven', params: { value: context.count } })) {
+      enqueue.assign({ count: ({ context }) => context.count + 1 });
+    }
+
+    enqueue('someAction');
+  })
+});
+```
+
+<Warning>
+Custom actions should not call built-in actions like `assign()` or `raise()` directly, as they are not imperative. Use them in the machine configuration instead.
+</Warning>
+
+## Named Actions
+
+For reusability and testability, define actions separately and reference them by name:
+
+```typescript
+import { createMachine, setup } from 'xstate';
+
+const machine = setup({
+  actions: {
+    logEvent: ({ context, event }) => {
+      console.log('Event received:', event.type);
+    },
+    incrementCount: assign({
+      count: ({ context }) => context.count + 1
+    })
+  }
+}).createMachine({
+  context: { count: 0 },
+  on: {
+    INCREMENT: {
+      actions: ['logEvent', 'incrementCount']
+    }
+  }
+});
+```
+
+## Action Arguments
+
+All actions receive an `args` object with:
+
+- `context` - The current machine context
+- `event` - The event that triggered the transition
+- `self` - A reference to the current actor
+- `system` - The actor system
+
+```typescript
+const customAction = ({ context, event, self, system }) => {
+  console.log('Context:', context);
+  console.log('Event:', event);
+  console.log('Actor ID:', self.id);
+};
+```
+
+<Tip>
+Actions are purely for side effects. If you need to affect the machine's behavior or control which transitions are taken, use guards instead.
+</Tip>

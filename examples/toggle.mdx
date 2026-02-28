@@ -1,0 +1,117 @@
+---
+title: Toggle Example
+description: Learn how to create a simple toggle machine with two states
+---
+
+This example demonstrates the most basic state machine: a toggle that switches between two states.
+
+## Overview
+
+The toggle machine has two states:
+- **inactive** - The initial state
+- **active** - The toggled state
+
+A `toggle` event transitions between these states.
+
+## Machine Definition
+
+Here's the complete toggle machine:
+
+```typescript
+import { createMachine } from 'xstate';
+
+export const toggleMachine = createMachine({
+  id: 'toggle',
+  initial: 'inactive',
+  states: {
+    inactive: {
+      on: {
+        toggle: 'active'
+      }
+    },
+    active: {
+      on: {
+        toggle: 'inactive'
+      }
+    }
+  }
+});
+```
+
+## Implementation
+
+<Steps>
+
+### Create the machine
+
+Define a machine with two states and a toggle transition between them.
+
+### Create an actor
+
+Instantiate the machine logic with `createActor()`:
+
+```typescript
+import { createActor } from 'xstate';
+import { toggleMachine } from './toggleMachine';
+
+const toggleActor = createActor(toggleMachine);
+```
+
+### Subscribe to state changes
+
+Listen for state updates to render the UI:
+
+```typescript
+toggleActor.subscribe((snapshot) => {
+  outputEl.innerHTML = snapshot.value === 'active' ? 'Active' : 'Inactive';
+});
+```
+
+### Start the actor
+
+Begin execution:
+
+```typescript
+toggleActor.start();
+```
+
+### Send events
+
+Trigger transitions by sending events:
+
+```typescript
+toggleButton.addEventListener('click', () => {
+  toggleActor.send({ type: 'toggle' });
+});
+```
+
+</Steps>
+
+## Complete Example
+
+```typescript
+import { toggleMachine } from './toggleMachine';
+import { createActor } from 'xstate';
+
+const toggleActor = createActor(toggleMachine);
+
+const toggleButton = document.querySelector<HTMLButtonElement>('#toggle')!;
+const outputEl = document.querySelector<HTMLDivElement>('#output')!;
+
+toggleActor.subscribe((snapshot) => {
+  outputEl.innerHTML = snapshot.value === 'active' ? 'Active' : 'Inactive';
+});
+
+toggleActor.start();
+
+toggleButton?.addEventListener('click', () => {
+  toggleActor.send({ type: 'toggle' });
+});
+```
+
+## Key Concepts
+
+- **States**: The machine can only be in one state at a time (`inactive` or `active`)
+- **Events**: The `toggle` event triggers state transitions
+- **Actor**: The running instance of the machine that maintains state
+- **Snapshot**: The current state returned by `subscribe()`

@@ -1,0 +1,276 @@
+---
+title: Actors
+description: Understanding the actor model in XState
+---
+
+## What are actors?
+
+Actors are self-contained, independent entities that communicate by sending messages to each other. In XState, actors are instances of state machine logic that can:
+
+- Receive events (messages)
+- Update their internal state
+- Send events to other actors
+- Spawn new actors
+
+<Note>
+The actor model is based on the mathematical model of computation introduced by Carl Hewitt in 1973.
+</Note>
+
+## Creating actors
+
+You create an actor from state machine logic using `createActor()`:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const toggleMachine = createMachine({
+  id: 'toggle',
+  initial: 'inactive',
+  states: {
+    inactive: {
+      on: { TOGGLE: 'active' }
+    },
+    active: {
+      on: { TOGGLE: 'inactive' }
+    }
+  }
+});
+
+// Create an actor from the machine
+const toggleActor = createActor(toggleMachine);
+
+// Subscribe to state changes
+toggleActor.subscribe((snapshot) => {
+  console.log(snapshot.value);
+});
+
+// Start the actor
+toggleActor.start();
+// logs 'inactive'
+
+// Send events to the actor
+toggleActor.send({ type: 'TOGGLE' });
+// logs 'active'
+```
+
+## Actor lifecycle
+
+Actors have a well-defined lifecycle:
+
+<Steps>
+  <Step title="Creation">
+    Create an actor using `createActor(logic, options)`
+  </Step>
+  <Step title="Starting">
+    Start the actor with `actor.start()`. This initializes the actor and runs entry actions.
+  </Step>
+  <Step title="Running">
+    The actor processes events sent via `actor.send(event)` and transitions between states.
+  </Step>
+  <Step title="Stopping">
+    Stop the actor with `actor.stop()`. This runs exit actions and cleans up resources.
+  </Step>
+</Steps>
+
+```typescript
+const actor = createActor(machine);
+
+// Actor is created but not started
+console.log(actor.getSnapshot().status); // 'not-started'
+
+actor.start();
+// Actor is now active
+console.log(actor.getSnapshot().status); // 'active'
+
+actor.stop();
+// Actor is stopped
+console.log(actor.getSnapshot().status); // 'stopped'
+```
+
+## Actor types
+
+XState supports several types of actors:
+
+### State machine actors
+
+Created from state machines:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({...});
+const actor = createActor(machine);
+```
+
+### Promise actors
+
+Created from promises:
+
+```typescript
+import { fromPromise, createActor } from 'xstate';
+
+const promiseLogic = fromPromise(async () => {
+  const response = await fetch('/api/data');
+  return response.json();
+});
+
+const actor = createActor(promiseLogic);
+actor.start();
+```
+
+### Callback actors
+
+Created from callback functions:
+
+```typescript
+import { fromCallback, createActor } from 'xstate';
+
+const callbackLogic = fromCallback(({ sendBack, receive }) => {
+  const interval = setInterval(() => {
+    sendBack({ type: 'TICK' });
+  }, 1000);
+
+  return () => clearInterval(interval);
+});
+
+const actor = createActor(callbackLogic);
+```
+
+### Observable actors
+
+Created from observables:
+
+```typescript
+import { fromObservable, createActor } from 'xstate';
+import { interval } from 'rxjs';
+
+const observableLogic = fromObservable(() => interval(1000));
+const actor = createActor(observableLogic);
+```
+
+## Parent-child actors
+
+Actors can spawn child actors, creating a hierarchical system:
+
+```typescript
+import { setup, fromPromise } from 'xstate';
+
+const fetchUser = fromPromise(async ({ input }: { input: { id: string } }) => {
+  const response = await fetch(`/api/users/${input.id}`);
+  return response.json();
+});
+
+const machine = setup({
+  actors: { fetchUser }
+}).createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        FETCH: 'loading'
+      }
+    },
+    loading: {
+      invoke: {
+        src: 'fetchUser',
+        input: ({ event }) => ({ id: event.userId }),
+        onDone: {
+          target: 'success',
+          actions: ({ event }) => {
+            console.log('User data:', event.output);
+          }
+        },
+        onError: 'failure'
+      }
+    },
+    success: {},
+    failure: {}
+  }
+});
+```
+
+## Actor communication
+
+Actors communicate by sending events:
+
+```typescript
+import { setup, sendTo, sendParent } from 'xstate';
+
+const childMachine = setup({}).createMachine({
+  on: {
+    NOTIFY_PARENT: {
+      actions: sendParent({ type: 'CHILD_DONE' })
+    }
+  }
+});
+
+const parentMachine = setup({
+  actors: { child: childMachine }
+}).createMachine({
+  initial: 'active',
+  states: {
+    active: {
+      invoke: {
+        id: 'childActor',
+        src: 'child'
+      },
+      on: {
+        PING_CHILD: {
+          actions: sendTo('childActor', { type: 'PING' })
+        },
+        CHILD_DONE: {
+          target: 'done'
+        }
+      }
+    },
+    done: {}
+  }
+});
+```
+
+## Actor system
+
+All actors in XState are part of an actor system that manages:
+
+- Actor registry and lookup
+- Message delivery
+- Actor lifecycle
+- Clock and scheduler
+
+<Tip>
+The actor system ensures that all actors are properly coordinated and can communicate reliably.
+</Tip>
+
+## Benefits of actors
+
+<CardGroup cols={2}>
+  <Card title="Isolation" icon="shield">
+    Each actor has its own state, preventing shared state bugs
+  </Card>
+  <Card title="Composition" icon="cubes">
+    Complex systems are built from simple, independent actors
+  </Card>
+  <Card title="Fault tolerance" icon="life-ring">
+    Actor failures are isolated and can be handled gracefully
+  </Card>
+  <Card title="Scalability" icon="chart-line">
+    Actors can run concurrently without blocking
+  </Card>
+</CardGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Promise actors" icon="clock" href="/api/actors/from-promise">
+    Work with asynchronous operations
+  </Card>
+  <Card title="Callback actors" icon="code" href="/api/actors/from-callback">
+    Create actors from callback functions
+  </Card>
+  <Card title="Spawning actors" icon="plus" href="/api/actions/spawn-child">
+    Dynamically create child actors
+  </Card>
+  <Card title="Actor API" icon="book" href="/api/create-actor">
+    Full actor API reference
+  </Card>
+</CardGroup>

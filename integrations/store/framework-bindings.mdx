@@ -1,0 +1,701 @@
+---
+title: Framework Bindings
+description: Use XState Store with React, Solid, Vue, and XState
+---
+
+XState Store provides first-class framework integrations for React, Solid, and Vue, along with actor integration for XState.
+
+## React
+
+The React integration uses `useSyncExternalStore` for optimal performance and automatic subscription management.
+
+### Installation
+
+```bash
+npm install @xstate/store
+```
+
+The React hooks are available from `@xstate/store/react`.
+
+### useSelector
+
+Subscribe to store or atom values in React components:
+
+```typescript
+import { useSelector } from '@xstate/store/react';
+import { createStore } from '@xstate/store';
+
+const counterStore = createStore({
+  context: { count: 0, lastUpdate: Date.now() },
+  on: {
+    increment: (ctx) => ({
+      ...ctx,
+      count: ctx.count + 1,
+      lastUpdate: Date.now()
+    }),
+    decrement: (ctx) => ({
+      ...ctx,
+      count: ctx.count - 1,
+      lastUpdate: Date.now()
+    })
+  }
+});
+
+function Counter() {
+  // Select a specific value
+  const count = useSelector(counterStore, (s) => s.context.count);
+
+  return (
+    <div>
+      <p>Count: {count}</p>
+      <button onClick={() => counterStore.trigger.increment()}>
+        Increment
+      </button>
+      <button onClick={() => counterStore.trigger.decrement()}>
+        Decrement
+      </button>
+    </div>
+  );
+}
+```
+
+### Type Signature
+
+```typescript
+// Select a value from store/atom
+function useSelector<TStore extends Readable<any>, T>(
+  store: TStore,
+  selector: (snapshot: TStore extends Readable<infer T> ? T : never) => T,
+  compare?: (a: T | undefined, b: T) => boolean
+): T
+
+// Use entire snapshot
+function useSelector<TStore extends Readable<any>>(
+  store: TStore,
+  selector?: undefined,
+  compare?: (a: T | undefined, b: T) => boolean
+): TStore extends Readable<infer T> ? T : never
+```
+
+See [react:60-112] for the implementation.
+
+### Without Selector
+
+Omit the selector to get the entire snapshot:
+
+```typescript
+function FullState() {
+  const snapshot = useSelector(counterStore);
+
+  return (
+    <div>
+      <p>Count: {snapshot.context.count}</p>
+      <p>Last update: {new Date(snapshot.context.lastUpdate).toLocaleString()}</p>
+      <p>Status: {snapshot.status}</p>
+    </div>
+  );
+}
+```
+
+### Custom Comparison
+
+Provide a custom comparison function to control re-renders:
+
+```typescript
+import { shallowEqual } from '@xstate/store';
+
+function UserProfile() {
+  // Only re-render if user object properties change (shallow)
+  const user = useSelector(
+    userStore,
+    (s) => s.context.user,
+    shallowEqual
+  );
+
+  return <div>{user.name}</div>;
+}
+```
+
+### Using Atoms
+
+`useSelector` works with atoms too:
+
+```typescript
+import { createAtom } from '@xstate/store';
+import { useSelector } from '@xstate/store/react';
+
+const countAtom = createAtom(0);
+
+function Counter() {
+  const count = useSelector(countAtom);
+
+  return (
+    <div>
+      <p>{count}</p>
+      <button onClick={() => countAtom.set((c) => c + 1)}>
+        Increment
+      </button>
+    </div>
+  );
+}
+```
+
+### Multiple Selectors
+
+Call `useSelector` multiple times for different values:
+
+```typescript
+function Dashboard() {
+  const user = useSelector(store, (s) => s.context.user);
+  const settings = useSelector(store, (s) => s.context.settings);
+  const notifications = useSelector(store, (s) => s.context.notifications);
+
+  // Component only re-renders when its selected values change
+  return (
+    <div>
+      <UserProfile user={user} />
+      <Settings settings={settings} />
+      <Notifications items={notifications} />
+    </div>
+  );
+}
+```
+
+<Tip>
+  Each `useSelector` call creates an independent subscription. The component only re-renders when the selected value changes.
+</Tip>
+
+### createStoreHook (Legacy)
+
+The `createStoreHook` API creates a custom hook for a store:
+
+```typescript
+import { createStoreHook } from '@xstate/store/react';
+
+const useCountStore = createStoreHook({
+  context: { count: 0 },
+  on: {
+    inc: (ctx, event: { by: number }) => ({
+      count: ctx.count + event.by
+    })
+  }
+});
+
+function Component() {
+  const [count, store] = useCountStore((s) => s.context.count);
+
+  return (
+    <div>
+      {count}
+      <button onClick={() => store.trigger.inc({ by: 1 })}>+</button>
+    </div>
+  );
+}
+```
+
+<Note>
+  `createStoreHook` is deprecated. Use `useSelector` with a module-level store instead.
+</Note>
+
+## Solid
+
+Solid.js integration uses Solid's reactive primitives for optimal fine-grained reactivity.
+
+### Installation
+
+```bash
+npm install @xstate/store solid-js
+```
+
+Import hooks from `@xstate/store/solid`.
+
+### useSelector
+
+Create reactive signals from stores:
+
+```typescript
+import { useSelector } from '@xstate/store/solid';
+import { createStore } from '@xstate/store';
+
+const counterStore = createStore({
+  context: { count: 0 },
+  on: {
+    increment: (ctx) => ({ count: ctx.count + 1 }),
+    decrement: (ctx) => ({ count: ctx.count - 1 })
+  }
+});
+
+function Counter() {
+  const count = useSelector(
+    counterStore,
+    (s) => s.context.count
+  );
+
+  return (
+    <div>
+      <p>Count: {count()}</p>
+      <button onClick={() => counterStore.trigger.increment()}>
+        Increment
+      </button>
+      <button onClick={() => counterStore.trigger.decrement()}>
+        Decrement
+      </button>
+    </div>
+  );
+}
+```
+
+### Type Signature
+
+```typescript
+function useSelector<TStore extends AnyStore, T>(
+  store: TStore,
+  selector: (snapshot: SnapshotFromStore<TStore>) => T,
+  compare?: (a: T | undefined, b: T) => boolean
+): () => T // Returns a signal
+```
+
+See [solid:57-81] for the implementation.
+
+### Key Differences from React
+
+- Returns a **signal accessor** `() => T`, not the value directly
+- Use `count()` to access the value, not just `count`
+- Subscriptions are managed by Solid's reactivity system
+
+```typescript
+function Example() {
+  const count = useSelector(store, (s) => s.context.count);
+
+  // ✅ Correct - call the signal
+  return <div>{count()}</div>;
+
+  // ❌ Wrong - don't use it directly
+  // return <div>{count}</div>;
+}
+```
+
+### With Atoms
+
+```typescript
+import { createAtom } from '@xstate/store';
+import { useSelector } from '@xstate/store/solid';
+
+const nameAtom = createAtom('Alice');
+
+function Greeting() {
+  const name = useSelector(nameAtom, (state) => state);
+
+  return (
+    <div>
+      <p>Hello, {name()}!</p>
+      <input
+        type="text"
+        value={name()}
+        onInput={(e) => nameAtom.set(e.currentTarget.value)}
+      />
+    </div>
+  );
+}
+```
+
+## Vue
+
+Vue integration is available through manual subscriptions. Use Vue's `ref` and `computed` for reactivity.
+
+### Basic Usage
+
+```vue
+<script setup lang="ts">
+import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { createStore } from '@xstate/store';
+
+const store = createStore({
+  context: { count: 0 },
+  on: {
+    increment: (ctx) => ({ count: ctx.count + 1 }),
+    decrement: (ctx) => ({ count: ctx.count - 1 })
+  }
+});
+
+const snapshot = ref(store.getSnapshot());
+const count = computed(() => snapshot.value.context.count);
+
+let unsubscribe: (() => void) | undefined;
+
+onMounted(() => {
+  unsubscribe = store.subscribe((newSnapshot) => {
+    snapshot.value = newSnapshot;
+  }).unsubscribe;
+});
+
+onUnmounted(() => {
+  unsubscribe?.();
+});
+
+function increment() {
+  store.trigger.increment();
+}
+
+function decrement() {
+  store.trigger.decrement();
+}
+</script>
+
+<template>
+  <div>
+    <p>Count: {{ count }}</p>
+    <button @click="increment">Increment</button>
+    <button @click="decrement">Decrement</button>
+  </div>
+</template>
+```
+
+### Composable Pattern
+
+Create a composable for reusable store subscriptions:
+
+```typescript
+// useStore.ts
+import { ref, onMounted, onUnmounted, Ref } from 'vue';
+import { Store, StoreSnapshot } from '@xstate/store';
+
+export function useStore<TContext>(
+  store: Store<TContext, any, any>
+): Ref<StoreSnapshot<TContext>> {
+  const snapshot = ref(store.getSnapshot()) as Ref<StoreSnapshot<TContext>>;
+
+  onMounted(() => {
+    const subscription = store.subscribe((newSnapshot) => {
+      snapshot.value = newSnapshot;
+    });
+
+    onUnmounted(() => {
+      subscription.unsubscribe();
+    });
+  });
+
+  return snapshot;
+}
+```
+
+Use the composable:
+
+```vue
+<script setup lang="ts">
+import { computed } from 'vue';
+import { useStore } from './useStore';
+import { counterStore } from './store';
+
+const snapshot = useStore(counterStore);
+const count = computed(() => snapshot.value.context.count);
+</script>
+
+<template>
+  <div>Count: {{ count }}</div>
+</template>
+```
+
+## XState Integration
+
+Use stores as actors in XState machines with `fromStore()`.
+
+### Creating Store Actors
+
+```typescript
+import { fromStore } from '@xstate/store';
+import { createMachine, createActor } from 'xstate';
+
+// Create store logic
+const counterLogic = fromStore({
+  context: (input: { initialCount: number }) => ({
+    count: input.initialCount
+  }),
+  on: {
+    increment: (ctx) => ({ count: ctx.count + 1 }),
+    decrement: (ctx) => ({ count: ctx.count - 1 })
+  }
+});
+
+// Use as an actor
+const actor = createActor(counterLogic, {
+  input: { initialCount: 10 }
+});
+actor.start();
+
+console.log(actor.getSnapshot().context.count); // 10
+actor.send({ type: 'increment' });
+console.log(actor.getSnapshot().context.count); // 11
+```
+
+### Type Signature
+
+```typescript
+function fromStore<
+  TContext extends StoreContext,
+  TEventPayloadMap extends EventPayloadMap,
+  TInput,
+  TEmitted extends EventPayloadMap
+>(config: {
+  context: ((input: TInput) => TContext) | TContext;
+  on: {
+    [K in keyof TEventPayloadMap]: StoreAssigner<
+      TContext,
+      { type: K } & TEventPayloadMap[K],
+      ExtractEvents<TEmitted>
+    >;
+  };
+  emits?: { [K in keyof TEmitted]: (payload: ...) => void };
+}): ActorLogic<StoreSnapshot<TContext>, ExtractEvents<TEventPayloadMap>, TInput, any, ExtractEvents<TEmitted>>
+```
+
+See [fromStore:31-93] for the implementation.
+
+### In State Machines
+
+Invoke stores as child actors:
+
+```typescript
+import { setup, createActor } from 'xstate';
+import { fromStore } from '@xstate/store';
+
+const cartStoreLogic = fromStore({
+  context: { items: [] as Array<{ id: string; name: string }> },
+  on: {
+    addItem: (ctx, event: { id: string; name: string }) => ({
+      items: [...ctx.items, { id: event.id, name: event.name }]
+    }),
+    removeItem: (ctx, event: { id: string }) => ({
+      items: ctx.items.filter((item) => item.id !== event.id)
+    })
+  },
+  emits: {
+    itemAdded: (payload) => {
+      console.log('Item added:', payload);
+    }
+  }
+});
+
+const checkoutMachine = setup({
+  actors: {
+    cartStore: cartStoreLogic
+  }
+}).createMachine({
+  initial: 'shopping',
+  context: {
+    cartRef: null
+  },
+  states: {
+    shopping: {
+      invoke: {
+        id: 'cart',
+        src: 'cartStore',
+        input: { items: [] }
+      },
+      on: {
+        ADD_TO_CART: {
+          actions: ({ event, system }) => {
+            const cartRef = system.get('cart');
+            cartRef.send({
+              type: 'addItem',
+              id: event.id,
+              name: event.name
+            });
+          }
+        },
+        CHECKOUT: 'payment'
+      }
+    },
+    payment: {
+      // ...
+    }
+  }
+});
+
+const actor = createActor(checkoutMachine);
+actor.start();
+
+actor.send({ type: 'ADD_TO_CART', id: '1', name: 'Widget' });
+```
+
+### Emitted Events
+
+Stores can emit events that the parent machine can listen to:
+
+```typescript
+const storeLogic = fromStore({
+  context: { count: 0 },
+  on: {
+    increment: (ctx, event, enqueue) => {
+      const newCount = ctx.count + 1;
+
+      if (newCount >= 10) {
+        enqueue.emit.limitReached({ count: newCount });
+      }
+
+      return { count: newCount };
+    }
+  },
+  emits: {
+    limitReached: (payload) => {
+      console.log('Limit reached!', payload);
+    }
+  }
+});
+
+const machine = setup({
+  actors: { storeLogic }
+}).createMachine({
+  invoke: {
+    id: 'counter',
+    src: 'storeLogic'
+  },
+  on: {
+    limitReached: {
+      actions: ({ event }) => {
+        console.log('Parent received:', event);
+      }
+    }
+  }
+});
+```
+
+## Patterns and Best Practices
+
+### Module-Level Stores
+
+Create stores at the module level and import them:
+
+```typescript
+// store.ts
+import { createStore } from '@xstate/store';
+
+export const counterStore = createStore({
+  context: { count: 0 },
+  on: {
+    increment: (ctx) => ({ count: ctx.count + 1 }),
+    decrement: (ctx) => ({ count: ctx.count - 1 })
+  }
+});
+
+// Counter.tsx
+import { useSelector } from '@xstate/store/react';
+import { counterStore } from './store';
+
+export function Counter() {
+  const count = useSelector(counterStore, (s) => s.context.count);
+  return <div>{count}</div>;
+}
+```
+
+<Tip>
+  Module-level stores provide global state with automatic subscription management in components.
+</Tip>
+
+### Optimizing Re-renders
+
+Select only the data you need:
+
+```typescript
+// ❌ Bad - re-renders on any context change
+const snapshot = useSelector(store);
+return <div>{snapshot.context.user.name}</div>;
+
+// ✅ Good - only re-renders when name changes
+const name = useSelector(store, (s) => s.context.user.name);
+return <div>{name}</div>;
+```
+
+### Store Selections for Derived State
+
+Use `store.select()` for derived values:
+
+```typescript
+const store = createStore({
+  context: { items: [] as Array<{ price: number }> },
+  on: { /* ... */ }
+});
+
+const totalSelection = store.select((s) =>
+  s.context.items.reduce((sum, item) => sum + item.price, 0)
+);
+
+function Total() {
+  const total = useSelector(totalSelection);
+  return <div>Total: ${total}</div>;
+}
+```
+
+### Lazy Atoms for Expensive Computations
+
+```typescript
+import { createAtom } from '@xstate/store';
+
+const expensiveAtom = createAtom((read) => {
+  const data = read(dataAtom);
+  // Expensive computation only runs when dataAtom changes
+  return processLargeDataset(data);
+});
+
+function Results() {
+  const results = useSelector(expensiveAtom);
+  return <div>{results}</div>;
+}
+```
+
+## Testing
+
+### Testing Stores
+
+```typescript
+import { createStore } from '@xstate/store';
+
+test('counter increments', () => {
+  const store = createStore({
+    context: { count: 0 },
+    on: {
+      increment: (ctx) => ({ count: ctx.count + 1 })
+    }
+  });
+
+  expect(store.get().context.count).toBe(0);
+
+  store.trigger.increment();
+  expect(store.get().context.count).toBe(1);
+});
+```
+
+### Testing React Components
+
+```typescript
+import { render, screen, fireEvent } from '@testing-library/react';
+import { createStore } from '@xstate/store';
+import { Counter } from './Counter';
+
+test('counter displays and increments', () => {
+  const store = createStore({
+    context: { count: 0 },
+    on: {
+      increment: (ctx) => ({ count: ctx.count + 1 })
+    }
+  });
+
+  render(<Counter store={store} />);
+
+  expect(screen.getByText('Count: 0')).toBeInTheDocument();
+
+  fireEvent.click(screen.getByText('Increment'));
+  expect(screen.getByText('Count: 1')).toBeInTheDocument();
+});
+```
+
+## Next Steps
+
+<Cards>
+  <Card title="Create Store" href="/docs/integrations/store/create-store">
+    Learn about store creation and configuration
+  </Card>
+  <Card title="Atoms API" href="/docs/integrations/store/atoms">
+    Work with reactive atoms and computed values
+  </Card>
+</Cards>

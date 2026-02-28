@@ -1,0 +1,243 @@
+---
+title: 'Solid Integration'
+description: 'Use XState with SolidJS using @xstate/solid'
+icon: 'cube'
+---
+
+## Installation
+
+Install `xstate` and `@xstate/solid`:
+
+```bash
+npm install xstate @xstate/solid
+```
+
+## Quick Start
+
+The `@xstate/solid` package provides hooks to use XState with SolidJS:
+
+```jsx
+import { useActor } from '@xstate/solid';
+import { createMachine } from 'xstate';
+
+const toggleMachine = createMachine({
+  id: 'toggle',
+  initial: 'inactive',
+  states: {
+    inactive: {
+      on: { TOGGLE: 'active' }
+    },
+    active: {
+      on: { TOGGLE: 'inactive' }
+    }
+  }
+});
+
+export const Toggler = () => {
+  const [snapshot, send] = useActor(toggleMachine);
+
+  return (
+    <button onclick={() => send({ type: 'TOGGLE' })}>
+      {snapshot.value === 'inactive'
+        ? 'Click to activate'
+        : 'Active! Click to deactivate'}
+    </button>
+  );
+};
+```
+
+## Available Hooks
+
+The `@xstate/solid` package provides these hooks:
+
+- `useActor(logic, options?)` - Creates and starts an actor from any XState logic
+- `useActorRef(logic, options?)` - Returns just the actor ref without reactive tracking
+- `useMachine(machine, options?)` - Alias for `useActor`, specifically typed for state machines
+- `fromActorRef(actorRef)` - Subscribes to an existing actor and returns a tracked snapshot accessor
+
+## Return Values
+
+### useActor / useMachine
+
+Returns a tuple of `[snapshot, send, actorRef]`:
+
+- `snapshot` - The current snapshot (tracked by SolidJS for granular reactivity)
+- `send` - Function to send events to the actor
+- `actorRef` - The underlying actor reference
+
+```jsx
+import { useActor } from '@xstate/solid';
+import { myMachine } from './myMachine';
+
+export const App = () => {
+  const [snapshot, send, actorRef] = useActor(myMachine);
+
+  // snapshot is tracked - component re-renders when accessed properties change
+  console.log(snapshot.value);
+
+  // send events
+  const handleClick = () => {
+    send({ type: 'EVENT' });
+  };
+
+  // access the actor ref
+  actorRef.subscribe((state) => {
+    console.log(state);
+  });
+
+  return (
+    <div>
+      <p>State: {snapshot.value}</p>
+      <button onclick={handleClick}>Send Event</button>
+    </div>
+  );
+};
+```
+
+### fromActorRef
+
+Returns an accessor function that returns the current snapshot:
+
+```jsx
+import { useActor, fromActorRef } from '@xstate/solid';
+import { myMachine } from './myMachine';
+
+export const App = () => {
+  const [, , actorRef] = useActor(myMachine);
+  const childSnapshot = fromActorRef(() => actorRef.getSnapshot().context.childActor);
+
+  return (
+    <div>
+      <p>Child state: {childSnapshot()?.value}</p>
+    </div>
+  );
+};
+```
+
+## Granular Reactivity
+
+SolidJS tracks which properties you access, so components only re-render when those specific values change:
+
+```jsx
+import { useActor } from '@xstate/solid';
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  context: {
+    count: 0,
+    name: 'Alice',
+    items: []
+  },
+  // ...
+});
+
+export const Counter = () => {
+  const [snapshot] = useActor(machine);
+
+  // This component ONLY re-renders when count changes,
+  // not when name or items change
+  return <div>Count: {snapshot.context.count}</div>;
+};
+
+export const Name = () => {
+  const [snapshot] = useActor(machine);
+
+  // This component ONLY re-renders when name changes
+  return <div>Name: {snapshot.context.name}</div>;
+};
+```
+
+## Lifecycle
+
+The actor is automatically started when the component mounts and stopped when it unmounts:
+
+- `onMount` - Actor is started via `actorRef.start()`
+- `onCleanup` - Actor is stopped via `actorRef.stop()`
+
+## TypeScript
+
+All hooks are fully typed when using TypeScript:
+
+```typescript
+import { setup } from 'xstate';
+import { useActor } from '@xstate/solid';
+
+const machine = setup({
+  types: {
+    context: {} as { count: number },
+    events: {} as { type: 'INCREMENT' } | { type: 'DECREMENT' }
+  }
+}).createMachine({
+  // ...
+});
+
+// TypeScript infers all types
+const [snapshot, send, actorRef] = useActor(machine);
+
+// snapshot.context.count is number
+// send accepts only defined events
+```
+
+## Matching States
+
+When using hierarchical and parallel machines, use SolidJS's `Switch` and `Match` components:
+
+```jsx
+import { Switch, Match } from 'solid-js';
+import { useActor } from '@xstate/solid';
+import { myMachine } from './myMachine';
+
+const Loader = () => {
+  const [snapshot, send] = useActor(myMachine);
+
+  return (
+    <div>
+      <Switch fallback={null}>
+        <Match when={snapshot.matches('idle')}>
+          <Loader.Idle />
+        </Match>
+        <Match when={snapshot.matches({ loading: 'user' })}>
+          <Loader.LoadingUser />
+        </Match>
+        <Match when={snapshot.matches({ loading: 'friends' })}>
+          <Loader.LoadingFriends />
+        </Match>
+      </Switch>
+    </div>
+  );
+};
+```
+
+## Persisted and Rehydrated State
+
+You can persist and rehydrate state via `options.snapshot`:
+
+```jsx
+import { useActor } from '@xstate/solid';
+import { someMachine } from './someMachine';
+
+// Get the persisted state from somewhere, e.g. localStorage
+const persistedSnapshot = JSON.parse(
+  localStorage.getItem('some-persisted-state-key')
+) || someMachine.initialState;
+
+const App = () => {
+  const [snapshot, send] = useActor(someMachine, {
+    snapshot: persistedSnapshot
+  });
+
+  // snapshot will rehydrate from the persisted snapshot
+  // ...
+};
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="useActor" icon="play" href="/integrations/solid/use-actor">
+    Learn about the useActor hook
+  </Card>
+  <Card title="fromActorRef" icon="link" href="/integrations/solid/use-selector">
+    Subscribe to existing actors
+  </Card>
+</CardGroup>

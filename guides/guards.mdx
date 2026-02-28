@@ -1,0 +1,370 @@
+---
+title: Guards
+description: Control transitions with conditional logic using guards
+---
+
+Guards are predicate functions that determine whether a transition should be taken. They enable conditional logic in your state machines, allowing transitions to occur only when certain conditions are met.
+
+## What are Guards?
+
+Guards (also called "conditions") are pure functions that return a boolean value:
+- **`true`** - The transition is allowed
+- **`false`** - The transition is blocked
+
+Guards are evaluated before a transition is taken and before any actions are executed.
+
+<Note>
+Guards should be pure functions with no side effects. They only determine whether a transition should happen.
+</Note>
+
+## Basic Guard Usage
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  id: 'turnstile',
+  initial: 'locked',
+  context: {
+    coins: 0
+  },
+  states: {
+    locked: {
+      on: {
+        INSERT_COIN: {
+          guard: ({ context }) => context.coins >= 1,
+          target: 'unlocked'
+        }
+      }
+    },
+    unlocked: {
+      on: {
+        PUSH: 'locked'
+      }
+    }
+  }
+});
+```
+
+## Inline Guards
+
+Inline guards are defined directly in the transition configuration:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  context: { value: 0 },
+  on: {
+    UPDATE: {
+      guard: ({ context, event }) => {
+        return context.value < 100 && event.value > 0;
+      },
+      actions: assign({
+        value: ({ event }) => event.value
+      })
+    }
+  }
+});
+```
+
+## Named Guards
+
+For reusability and testability, define guards separately:
+
+```typescript
+import { setup, createActor } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isPositive: ({ context }) => context.value > 0,
+    isWithinLimit: ({ context }) => context.value < 100,
+    isValidEvent: ({ event }) => event.value !== undefined
+  }
+}).createMachine({
+  context: { value: 0 },
+  on: {
+    INCREMENT: {
+      guard: 'isWithinLimit',
+      actions: assign({
+        value: ({ context }) => context.value + 1
+      })
+    },
+    SET: {
+      guard: 'isValidEvent',
+      actions: assign({
+        value: ({ event }) => event.value
+      })
+    }
+  }
+});
+```
+
+## Guard Arguments
+
+Guards receive an object with:
+- `context` - The current machine context
+- `event` - The event that triggered the transition attempt
+
+```typescript
+const guards = {
+  checkValue: ({ context, event }) => {
+    console.log('Current context:', context);
+    console.log('Event data:', event);
+    return context.count > event.threshold;
+  }
+};
+```
+
+## Higher-Order Guards
+
+XState provides built-in higher-order guards for combining conditions:
+
+<Steps>
+
+### and
+
+All guards must evaluate to `true`.
+
+```typescript
+import { setup, and } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isPositive: ({ context }) => context.value > 0,
+    isEven: ({ context }) => context.value % 2 === 0
+  }
+}).createMachine({
+  context: { value: 0 },
+  on: {
+    UPDATE: {
+      guard: and(['isPositive', 'isEven']),
+      actions: assign({ value: ({ event }) => event.value })
+    }
+  }
+});
+```
+
+### or
+
+At least one guard must evaluate to `true`.
+
+```typescript
+import { setup, or } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isLow: ({ context }) => context.value < 10,
+    isHigh: ({ context }) => context.value > 90
+  }
+}).createMachine({
+  context: { value: 50 },
+  on: {
+    ALERT: {
+      guard: or(['isLow', 'isHigh']),
+      actions: () => console.log('Value is out of normal range!')
+    }
+  }
+});
+```
+
+### not
+
+Inverts the result of a guard.
+
+```typescript
+import { setup, not } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isEmpty: ({ context }) => context.items.length === 0
+  }
+}).createMachine({
+  context: { items: [] },
+  on: {
+    PROCESS: {
+      guard: not('isEmpty'),
+      actions: () => console.log('Processing items')
+    }
+  }
+});
+```
+
+</Steps>
+
+## Combining Guards
+
+You can nest higher-order guards for complex logic:
+
+```typescript
+import { setup, and, or, not } from 'xstate';
+
+const machine = setup({
+  guards: {
+    hasPermission: ({ context }) => context.user.role === 'admin',
+    isAuthenticated: ({ context }) => context.user.isLoggedIn,
+    isOwner: ({ context, event }) => context.user.id === event.resourceOwnerId
+  }
+}).createMachine({
+  on: {
+    DELETE: {
+      guard: and([
+        'isAuthenticated',
+        or(['hasPermission', 'isOwner'])
+      ]),
+      actions: () => console.log('Delete authorized')
+    }
+  }
+});
+```
+
+## stateIn Guard
+
+Check if the machine is currently in a specific state:
+
+```typescript
+import { createMachine, stateIn } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        START: 'running'
+      }
+    },
+    running: {
+      on: {
+        PAUSE: 'paused'
+      }
+    },
+    paused: {
+      on: {
+        RESUME: {
+          guard: stateIn('paused'),
+          target: 'running'
+        }
+      }
+    }
+  }
+});
+```
+
+## Multiple Transitions with Guards
+
+When multiple transitions exist for the same event, guards determine which one is taken. The first transition whose guard evaluates to `true` is selected:
+
+```typescript
+import { createMachine, assign } from 'xstate';
+
+const machine = createMachine({
+  context: { score: 0 },
+  initial: 'playing',
+  states: {
+    playing: {
+      on: {
+        SUBMIT_SCORE: [
+          {
+            guard: ({ context }) => context.score >= 100,
+            target: 'excellent',
+            actions: assign({ message: 'Perfect score!' })
+          },
+          {
+            guard: ({ context }) => context.score >= 70,
+            target: 'good',
+            actions: assign({ message: 'Great job!' })
+          },
+          {
+            guard: ({ context }) => context.score >= 50,
+            target: 'pass',
+            actions: assign({ message: 'You passed!' })
+          },
+          {
+            // Default transition (no guard)
+            target: 'fail',
+            actions: assign({ message: 'Try again!' })
+          }
+        ]
+      }
+    },
+    excellent: { type: 'final' },
+    good: { type: 'final' },
+    pass: { type: 'final' },
+    fail: { type: 'final' }
+  }
+});
+```
+
+<Warning>
+Guards are evaluated in order. The first guard that returns `true` determines which transition is taken. Ensure your guards are ordered from most specific to least specific.
+</Warning>
+
+## Parameterized Guards
+
+Guards can accept parameters for more flexibility:
+
+```typescript
+import { setup } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isAboveThreshold: ({ context }, params: { threshold: number }) => {
+      return context.value > params.threshold;
+    }
+  }
+}).createMachine({
+  context: { value: 50 },
+  on: {
+    CHECK_LOW: {
+      guard: {
+        type: 'isAboveThreshold',
+        params: { threshold: 10 }
+      }
+    },
+    CHECK_HIGH: {
+      guard: {
+        type: 'isAboveThreshold',
+        params: { threshold: 100 }
+      }
+    }
+  }
+});
+```
+
+## Dynamic Guard Parameters
+
+Parameters can be computed dynamically:
+
+```typescript
+import { setup } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isGreaterThan: ({ context }, params: { value: number }) => {
+      return context.count > params.value;
+    }
+  }
+}).createMachine({
+  context: { count: 10, minimum: 5 },
+  on: {
+    CHECK: {
+      guard: {
+        type: 'isGreaterThan',
+        params: ({ context }) => ({ value: context.minimum })
+      }
+    }
+  }
+});
+```
+
+<Tip>
+Keep guards simple and focused. Complex logic should be broken down into smaller, named guards that can be combined with higher-order guards like `and`, `or`, and `not`.
+</Tip>
+
+## Best Practices
+
+1. **Pure functions**: Guards should have no side effects
+2. **Descriptive names**: Use clear, intention-revealing names for guards
+3. **Keep them simple**: Complex conditions should be broken into smaller guards
+4. **Test separately**: Named guards are easier to unit test
+5. **Order matters**: When using multiple guarded transitions, order from most to least specific

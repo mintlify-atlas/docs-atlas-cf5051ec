@@ -1,0 +1,325 @@
+---
+title: Snapshot
+description: API reference for Snapshot type
+---
+
+A `Snapshot` represents the state of an actor at a specific point in time. Different types of actors have different snapshot structures.
+
+## Type
+
+```typescript
+interface Snapshot<TOutput> {
+  /** The status of the actor snapshot */
+  status: 'active' | 'done' | 'error' | 'stopped';
+  /** The output data of the actor when in a final state */
+  output?: TOutput;
+  /** The error that caused the actor to fail */
+  error?: unknown;
+}
+```
+
+## Properties
+
+<ResponseField name="status" type="'active' | 'done' | 'error' | 'stopped'" required>
+  The current status of the actor.
+
+  - `'active'` - The actor is running and can receive events
+  - `'done'` - The actor has completed successfully and produced output
+  - `'error'` - The actor encountered an error
+  - `'stopped'` - The actor has been stopped
+</ResponseField>
+
+<ResponseField name="output" type="TOutput | undefined">
+  The output data produced by the actor when it reaches a final state.
+
+  Only defined when `status` is `'done'`.
+</ResponseField>
+
+<ResponseField name="error" type="unknown">
+  The error that caused the actor to enter an error state.
+
+  Only defined when `status` is `'error'`.
+</ResponseField>
+
+## Snapshot Types
+
+Different actor types extend the base `Snapshot` interface with additional properties:
+
+### MachineSnapshot
+
+For state machine actors created with `createMachine()`:
+
+```typescript
+interface MachineSnapshot<TContext, TEvent, ...> extends Snapshot<TOutput> {
+  value: StateValue;
+  context: TContext;
+  tags: Set<string>;
+  children: Record<string, ActorRef>;
+  matches(stateValue: StateValue): boolean;
+  hasTag(tag: string): boolean;
+  can(event: TEvent): boolean;
+  getMeta(): Record<string, any>;
+}
+```
+
+See [State API](/api/state) for full details.
+
+### PromiseSnapshot
+
+For promise actors created with `fromPromise()`:
+
+```typescript
+type PromiseSnapshot<TOutput> = 
+  | { status: 'active'; output: undefined; error: undefined }
+  | { status: 'done'; output: TOutput; error: undefined }
+  | { status: 'error'; output: undefined; error: unknown }
+```
+
+### CallbackSnapshot
+
+For callback actors created with `fromCallback()`:
+
+```typescript
+interface CallbackSnapshot {
+  status: 'active';
+  output: undefined;
+  error: undefined;
+}
+```
+
+### ObservableSnapshot
+
+For observable actors created with `fromObservable()`:
+
+```typescript
+type ObservableSnapshot<TOutput> =
+  | { status: 'active'; output: undefined; error: undefined; context: TOutput }
+  | { status: 'done'; output: undefined; error: undefined; context: TOutput }
+  | { status: 'error'; output: undefined; error: unknown; context: undefined }
+```
+
+### TransitionSnapshot
+
+For transition actors created with `fromTransition()`:
+
+```typescript
+interface TransitionSnapshot<TContext> {
+  status: 'active';
+  output: undefined;
+  error: undefined;
+  context: TContext;
+}
+```
+
+## Helper Types
+
+### SnapshotFrom
+
+Extracts the snapshot type from actor logic:
+
+```typescript
+import { SnapshotFrom } from 'xstate';
+
+const machine = createMachine({...});
+
+type MySnapshot = SnapshotFrom<typeof machine>;
+```
+
+### OutputFrom
+
+Extracts the output type from actor logic:
+
+```typescript
+import { OutputFrom } from 'xstate';
+
+const promiseLogic = fromPromise(async () => ({ data: 'result' }));
+
+type MyOutput = OutputFrom<typeof promiseLogic>;
+// => { data: string }
+```
+
+## Examples
+
+### Checking snapshot status
+
+```ts
+import { createActor, fromPromise } from 'xstate';
+
+const promiseLogic = fromPromise(async () => {
+  const response = await fetch('/api/data');
+  return response.json();
+});
+
+const actor = createActor(promiseLogic);
+
+actor.subscribe((snapshot) => {
+  switch (snapshot.status) {
+    case 'active':
+      console.log('Loading...');
+      break;
+    case 'done':
+      console.log('Success:', snapshot.output);
+      break;
+    case 'error':
+      console.error('Failed:', snapshot.error);
+      break;
+  }
+});
+
+actor.start();
+```
+
+### Using snapshots with machines
+
+```ts
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  context: { count: 0 },
+  states: {
+    idle: {
+      on: { START: 'running' }
+    },
+    running: {
+      on: { STOP: 'idle' }
+    }
+  }
+});
+
+const actor = createActor(machine);
+
+actor.subscribe((snapshot) => {
+  console.log('Status:', snapshot.status);
+  console.log('State:', snapshot.value);
+  console.log('Context:', snapshot.context);
+});
+
+actor.start();
+```
+
+### Type-safe snapshots
+
+```ts
+import { createMachine, createActor, SnapshotFrom } from 'xstate';
+
+const machine = createMachine({
+  types: {} as {
+    context: { count: number };
+    output: number;
+  },
+  initial: 'counting',
+  context: { count: 0 },
+  states: {
+    counting: {
+      on: {
+        INCREMENT: {
+          actions: assign({ count: ({ context }) => context.count + 1 })
+        },
+        FINISH: 'done'
+      }
+    },
+    done: {
+      type: 'final'
+    }
+  },
+  output: ({ context }) => context.count
+});
+
+type MySnapshot = SnapshotFrom<typeof machine>;
+
+function handleSnapshot(snapshot: MySnapshot) {
+  if (snapshot.status === 'done') {
+    // TypeScript knows snapshot.output is a number
+    console.log('Final count:', snapshot.output);
+  }
+  
+  // TypeScript knows snapshot.context has a count property
+  console.log('Current count:', snapshot.context.count);
+}
+
+const actor = createActor(machine);
+actor.subscribe(handleSnapshot);
+actor.start();
+```
+
+### Persisting snapshots
+
+```ts
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'active',
+  context: { value: 0 },
+  states: {
+    active: {
+      on: {
+        INCREMENT: {
+          actions: assign({ value: ({ context }) => context.value + 1 })
+        }
+      }
+    }
+  }
+});
+
+const actor = createActor(machine);
+actor.start();
+
+actor.send({ type: 'INCREMENT' });
+actor.send({ type: 'INCREMENT' });
+
+// Get persisted snapshot
+const persistedSnapshot = actor.getPersistedSnapshot();
+
+// Save to storage
+localStorage.setItem('actorState', JSON.stringify(persistedSnapshot));
+
+// Later, restore from storage
+const savedState = JSON.parse(localStorage.getItem('actorState'));
+
+const restoredActor = createActor(machine, {
+  snapshot: savedState
+});
+restoredActor.start();
+
+console.log(restoredActor.getSnapshot().context.value); // 2
+```
+
+### Observable snapshots
+
+```ts
+import { createActor, fromObservable } from 'xstate';
+import { interval } from 'rxjs';
+import { map } from 'rxjs/operators';
+
+const observableLogic = fromObservable(() => 
+  interval(1000).pipe(
+    map(n => ({ count: n }))
+  )
+);
+
+const actor = createActor(observableLogic);
+
+actor.subscribe((snapshot) => {
+  if (snapshot.status === 'active') {
+    console.log('Count:', snapshot.context.count);
+  }
+});
+
+actor.start();
+```
+
+## Notes
+
+- Snapshots are immutable - they represent a point-in-time state
+- The `status` field is always present on all snapshot types
+- Machine snapshots have additional properties like `value`, `context`, and `tags`
+- Use `getSnapshot()` to read the current snapshot synchronously
+- Use `getPersistedSnapshot()` to get a serializable snapshot for persistence
+
+## See also
+
+- [State (MachineSnapshot)](/api/state) - State machine snapshots
+- [Actor.getSnapshot()](/api/actor#getsnapshot) - Get current snapshot
+- [Actor.getPersistedSnapshot()](/api/actor#getpersistedsnapshot) - Get persisted snapshot
+- [Persistence guide](/persistence) - Persisting and restoring state

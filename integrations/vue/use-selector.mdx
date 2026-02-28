@@ -1,0 +1,403 @@
+---
+title: 'useSelector'
+description: 'Subscribe to derived values from XState actors in Vue'
+icon: 'filter'
+---
+
+## Overview
+
+The `useSelector` composition function subscribes to an actor and returns a derived value from its snapshot. It only triggers updates when the selected value changes.
+
+```typescript
+function useSelector<TActor, T>(
+  actor: TActor | Ref<TActor>,
+  selector: (snapshot: SnapshotFrom<TActor>) => T,
+  compare?: (a: T, b: T) => boolean
+): Ref<T>
+```
+
+## Basic Usage
+
+<CodeGroup>
+
+```vue Select Context Value
+<script setup>
+import { useActor, useSelector } from '@xstate/vue';
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  context: { count: 0, name: 'Alice' },
+  // ...
+});
+
+const { actorRef } = useActor(machine);
+
+// Only re-renders when count changes
+const count = useSelector(actorRef, (state) => state.context.count);
+
+// Only re-renders when name changes
+const name = useSelector(actorRef, (state) => state.context.name);
+</script>
+
+<template>
+  <div>
+    <p>Count: {{ count }}</p>
+    <p>Name: {{ name }}</p>
+  </div>
+</template>
+```
+
+```vue Select State Value
+<script setup>
+import { useActor, useSelector } from '@xstate/vue';
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: { on: { FETCH: 'loading' } },
+    loading: { on: { RESOLVE: 'success', REJECT: 'error' } },
+    success: {},
+    error: {}
+  }
+});
+
+const { actorRef } = useActor(machine);
+
+// Returns boolean for state match
+const isLoading = useSelector(
+  actorRef,
+  (state) => state.matches('loading')
+);
+
+const isSuccess = useSelector(
+  actorRef,
+  (state) => state.matches('success')
+);
+</script>
+
+<template>
+  <div>
+    <div v-if="isLoading">Loading...</div>
+    <div v-else-if="isSuccess">Success!</div>
+  </div>
+</template>
+```
+
+```vue Complex Selection
+<script setup>
+import { useActor, useSelector } from '@xstate/vue';
+import { myMachine } from './myMachine';
+
+const { actorRef } = useActor(myMachine);
+
+// Select and transform data
+const activeItems = useSelector(actorRef, (state) => {
+  return state.context.items.filter(item => item.active);
+});
+
+// Derive computed values
+const totalPrice = useSelector(actorRef, (state) => {
+  return state.context.cart.reduce(
+    (sum, item) => sum + item.price * item.quantity,
+    0
+  );
+});
+</script>
+
+<template>
+  <div>
+    <p>Active items: {{ activeItems.length }}</p>
+    <p>Total: ${{ totalPrice.toFixed(2) }}</p>
+  </div>
+</template>
+```
+
+</CodeGroup>
+
+## Custom Comparison
+
+By default, `useSelector` uses strict equality (`===`) to compare values. Provide a custom comparison function for complex objects:
+
+<CodeGroup>
+
+```vue Shallow Comparison
+<script setup>
+import { useActor, useSelector } from '@xstate/vue';
+import { myMachine } from './myMachine';
+
+const { actorRef } = useActor(myMachine);
+
+function shallowEqual(a, b) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  
+  if (keysA.length !== keysB.length) return false;
+  
+  return keysA.every(key => a[key] === b[key]);
+}
+
+const user = useSelector(
+  actorRef,
+  (state) => state.context.user,
+  shallowEqual
+);
+</script>
+```
+
+```vue Deep Comparison
+<script setup>
+import { useActor, useSelector } from '@xstate/vue';
+import { isEqual } from 'lodash';
+import { myMachine } from './myMachine';
+
+const { actorRef } = useActor(myMachine);
+
+// Use deep equality check
+const config = useSelector(
+  actorRef,
+  (state) => state.context.config,
+  isEqual
+);
+</script>
+```
+
+```vue Array Comparison
+<script setup>
+import { useActor, useSelector } from '@xstate/vue';
+import { myMachine } from './myMachine';
+
+const { actorRef } = useActor(myMachine);
+
+function arrayEqual(a, b) {
+  if (a.length !== b.length) return false;
+  return a.every((item, index) => item === b[index]);
+}
+
+const ids = useSelector(
+  actorRef,
+  (state) => state.context.selectedIds,
+  arrayEqual
+);
+</script>
+```
+
+</CodeGroup>
+
+## Reactive Actor Reference
+
+You can pass a reactive `Ref<Actor>` to `useSelector`:
+
+```vue
+<script setup>
+import { ref } from 'vue';
+import { useActor, useSelector } from '@xstate/vue';
+import { machine1, machine2 } from './machines';
+
+const { actorRef: actor1 } = useActor(machine1);
+const { actorRef: actor2 } = useActor(machine2);
+
+const currentActor = ref(actor1);
+
+// Automatically subscribes to the current actor
+const value = useSelector(
+  currentActor,
+  (state) => state.context.value
+);
+
+function switchActor() {
+  currentActor.value = actor2;
+}
+</script>
+
+<template>
+  <div>
+    <p>Value: {{ value }}</p>
+    <button @click="switchActor">Switch Actor</button>
+  </div>
+</template>
+```
+
+## Performance Optimization
+
+Use `useSelector` to optimize rendering by only subscribing to specific parts of state:
+
+```vue
+<script setup>
+import { useActor, useSelector } from '@xstate/vue';
+import { largeMachine } from './largeMachine';
+
+const { actorRef } = useActor(largeMachine);
+
+// Component only re-renders when username changes,
+// not when other context values change
+const username = useSelector(
+  actorRef,
+  (state) => state.context.user.name
+);
+
+// Component only re-renders when this specific state is active
+const isEditMode = useSelector(
+  actorRef,
+  (state) => state.matches({ editing: 'user' })
+);
+</script>
+
+<template>
+  <div>
+    <h1>{{ username }}</h1>
+    <form v-if="isEditMode">
+      <!-- Edit form -->
+    </form>
+  </div>
+</template>
+```
+
+## Multiple Selectors
+
+Create multiple selectors for different values:
+
+```vue
+<script setup>
+import { useActor, useSelector } from '@xstate/vue';
+import { dashboardMachine } from './dashboardMachine';
+
+const { actorRef, send } = useActor(dashboardMachine);
+
+const userName = useSelector(
+  actorRef,
+  (state) => state.context.user.name
+);
+
+const notifications = useSelector(
+  actorRef,
+  (state) => state.context.notifications
+);
+
+const unreadCount = useSelector(
+  actorRef,
+  (state) => state.context.notifications.filter(n => !n.read).length
+);
+
+const currentPage = useSelector(
+  actorRef,
+  (state) => state.value
+);
+</script>
+
+<template>
+  <div>
+    <header>
+      <span>{{ userName }}</span>
+      <span v-if="unreadCount > 0">
+        {{ unreadCount }} new notifications
+      </span>
+    </header>
+    <main>
+      <p>Current page: {{ currentPage }}</p>
+    </main>
+  </div>
+</template>
+```
+
+## Selecting from Spawned Actors
+
+Use `useSelector` with actors spawned from a parent machine:
+
+```vue
+<script setup>
+import { useActor, useSelector } from '@xstate/vue';
+import { computed } from 'vue';
+import { parentMachine } from './parentMachine';
+
+const { actorRef: parent } = useActor(parentMachine);
+
+// Get spawned child actor
+const childActor = useSelector(
+  parent,
+  (state) => state.context.childActor
+);
+
+// Select from child if it exists
+const childValue = computed(() => {
+  if (!childActor.value) return null;
+  return childActor.value.getSnapshot().context.value;
+});
+</script>
+
+<template>
+  <div>
+    <div v-if="childActor">
+      Child value: {{ childValue }}
+    </div>
+  </div>
+</template>
+```
+
+## TypeScript
+
+The selector function is fully typed:
+
+```typescript
+import { setup } from 'xstate';
+import { useActor, useSelector } from '@xstate/vue';
+import type { Ref } from 'vue';
+
+interface User {
+  id: string;
+  name: string;
+  email: string;
+}
+
+const machine = setup({
+  types: {
+    context: {} as {
+      user: User;
+      count: number;
+    }
+  }
+}).createMachine({
+  context: {
+    user: { id: '1', name: 'Alice', email: 'alice@example.com' },
+    count: 0
+  }
+});
+
+const { actorRef } = useActor(machine);
+
+// TypeScript infers the return type
+const userName: Ref<string> = useSelector(
+  actorRef,
+  (state) => state.context.user.name
+);
+
+const userEmail: Ref<string> = useSelector(
+  actorRef,
+  (state) => state.context.user.email
+);
+```
+
+## Implementation Details
+
+The `useSelector` hook:
+
+1. Creates a shallow ref for the selected value
+2. Uses Vue's `watch` to monitor the actor ref
+3. Subscribes to actor changes on mount
+4. Compares new selected values using the comparison function
+5. Only updates the ref when the comparison returns `false`
+6. Automatically unsubscribes on cleanup
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="useActor" icon="play" href="/integrations/vue/use-actor">
+    Create and manage actors with reactive snapshots
+  </Card>
+  <Card title="Vue Integration" icon="vuejs" href="/integrations/vue/overview">
+    Back to Vue integration overview
+  </Card>
+</CardGroup>

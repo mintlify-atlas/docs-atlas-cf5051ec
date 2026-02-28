@@ -1,0 +1,415 @@
+---
+title: Hierarchical State Machines
+description: Organize complex states with parent-child relationships
+---
+
+Hierarchical (or nested) state machines allow you to organize states in a parent-child relationship. This pattern helps manage complexity by breaking down large state machines into smaller, more manageable pieces.
+
+## Why Use Hierarchical States?
+
+Hierarchical states provide several benefits:
+
+- **Reduce complexity**: Break large machines into manageable pieces
+- **Shared behavior**: Child states inherit transitions from parent states
+- **Better organization**: Group related states together
+- **Scalability**: Easier to maintain and extend
+
+<Note>
+When a parent state is active, exactly one of its child states is also active (unless it's a parallel state).
+</Note>
+
+## Basic Hierarchical States
+
+The traffic light example from XState's README demonstrates nested states:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const pedestrianStates = {
+  initial: 'walk',
+  states: {
+    walk: {
+      on: {
+        PED_TIMER: 'wait'
+      }
+    },
+    wait: {
+      on: {
+        PED_TIMER: 'stop'
+      }
+    },
+    stop: {}
+  }
+};
+
+const lightMachine = createMachine({
+  id: 'light',
+  initial: 'green',
+  states: {
+    green: {
+      on: {
+        TIMER: 'yellow'
+      }
+    },
+    yellow: {
+      on: {
+        TIMER: 'red'
+      }
+    },
+    red: {
+      on: {
+        TIMER: 'green'
+      },
+      ...pedestrianStates
+    }
+  }
+});
+
+const actor = createActor(lightMachine);
+actor.subscribe((state) => {
+  console.log(state.value);
+});
+
+actor.start();
+// logs: 'green'
+
+actor.send({ type: 'TIMER' });
+// logs: 'yellow'
+
+actor.send({ type: 'TIMER' });
+// logs: { red: 'walk' }
+
+actor.send({ type: 'PED_TIMER' });
+// logs: { red: 'wait' }
+```
+
+## State Values in Hierarchical Machines
+
+When states are nested, the state value reflects the hierarchy:
+
+- **Simple state**: `'green'` (string)
+- **Nested state**: `{ red: 'walk' }` (object)
+- **Deeply nested**: `{ parent: { child: 'grandchild' } }`
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: { START: 'active' }
+    },
+    active: {
+      initial: 'loading',
+      states: {
+        loading: {
+          on: { SUCCESS: 'success', FAILURE: 'error' }
+        },
+        success: {
+          type: 'final'
+        },
+        error: {
+          on: { RETRY: 'loading' }
+        }
+      },
+      on: {
+        CANCEL: 'idle'
+      }
+    }
+  }
+});
+
+const actor = createActor(machine);
+actor.subscribe((state) => {
+  console.log(state.value);
+});
+
+actor.start();
+// State value: 'idle'
+
+actor.send({ type: 'START' });
+// State value: { active: 'loading' }
+
+actor.send({ type: 'SUCCESS' });
+// State value: { active: 'success' }
+```
+
+## Initial States
+
+Compound states (states with children) must specify an `initial` state:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  initial: 'auth',
+  states: {
+    auth: {
+      initial: 'checkingSession',
+      states: {
+        checkingSession: {
+          on: {
+            SESSION_VALID: 'authenticated',
+            SESSION_INVALID: 'unauthenticated'
+          }
+        },
+        authenticated: {
+          on: { LOGOUT: 'unauthenticated' }
+        },
+        unauthenticated: {
+          on: { LOGIN: 'authenticated' }
+        }
+      }
+    }
+  }
+});
+```
+
+## Inheriting Transitions
+
+Child states inherit transitions from their parent states. This is useful for defining common behavior:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  initial: 'form',
+  states: {
+    form: {
+      initial: 'name',
+      states: {
+        name: {
+          on: { NEXT: 'email' }
+        },
+        email: {
+          on: {
+            NEXT: 'phone',
+            BACK: 'name'
+          }
+        },
+        phone: {
+          on: { BACK: 'email' }
+        }
+      },
+      // This transition is available in ALL child states
+      on: {
+        CANCEL: '#idle'
+      }
+    },
+    idle: {
+      id: 'idle',
+      on: { START: 'form' }
+    }
+  }
+});
+```
+
+<Tip>
+Child state transitions take precedence over parent state transitions. If both define a transition for the same event, the child's transition is used.
+</Tip>
+
+## Entry and Exit Actions
+
+When transitioning between nested states, entry and exit actions execute in a specific order:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'parent',
+  states: {
+    parent: {
+      entry: () => console.log('Entering parent'),
+      exit: () => console.log('Exiting parent'),
+      initial: 'childA',
+      states: {
+        childA: {
+          entry: () => console.log('Entering childA'),
+          exit: () => console.log('Exiting childA'),
+          on: { SWITCH: 'childB' }
+        },
+        childB: {
+          entry: () => console.log('Entering childB'),
+          exit: () => console.log('Exiting childB')
+        }
+      },
+      on: { LEAVE: 'other' }
+    },
+    other: {
+      entry: () => console.log('Entering other')
+    }
+  }
+});
+
+const actor = createActor(machine);
+actor.start();
+// logs:
+// "Entering parent"
+// "Entering childA"
+
+actor.send({ type: 'SWITCH' });
+// logs:
+// "Exiting childA"
+// "Entering childB"
+
+actor.send({ type: 'LEAVE' });
+// logs:
+// "Exiting childB"
+// "Exiting parent"
+// "Entering other"
+```
+
+<Steps>
+
+### Order of Execution
+
+1. **Exit actions**: Execute from innermost to outermost state
+2. **Transition actions**: Execute on the transition itself
+3. **Entry actions**: Execute from outermost to innermost state
+
+</Steps>
+
+## Targeting Nested States
+
+You can target nested states directly using dot notation or IDs:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        // Target using dot notation
+        START: 'active.processing',
+        // Target using ID
+        JUMP_TO_SUCCESS: '#success'
+      }
+    },
+    active: {
+      initial: 'processing',
+      states: {
+        processing: {
+          on: { COMPLETE: 'success' }
+        },
+        success: {
+          id: 'success',
+          type: 'final'
+        }
+      }
+    }
+  }
+});
+```
+
+## Deep Nesting Example
+
+Real-world applications often require multiple levels of nesting:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const appMachine = createMachine({
+  initial: 'unauthorized',
+  states: {
+    unauthorized: {
+      initial: 'login',
+      states: {
+        login: {
+          on: { SUBMIT: 'authenticating' }
+        },
+        authenticating: {
+          on: {
+            SUCCESS: '#authorized',
+            ERROR: 'loginError'
+          }
+        },
+        loginError: {
+          on: { RETRY: 'login' }
+        }
+      }
+    },
+    authorized: {
+      id: 'authorized',
+      initial: 'dashboard',
+      states: {
+        dashboard: {
+          on: { SELECT_USER: 'userProfile' }
+        },
+        userProfile: {
+          initial: 'viewing',
+          states: {
+            viewing: {
+              on: { EDIT: 'editing' }
+            },
+            editing: {
+              on: {
+                SAVE: 'saving',
+                CANCEL: 'viewing'
+              }
+            },
+            saving: {
+              on: {
+                SUCCESS: 'viewing',
+                ERROR: 'editing'
+              }
+            }
+          },
+          on: { BACK: 'dashboard' }
+        }
+      },
+      on: { LOGOUT: 'unauthorized' }
+    }
+  }
+});
+```
+
+## Checking Current State
+
+Use `state.matches()` to check if the machine is in a specific state:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'parent',
+  states: {
+    parent: {
+      initial: 'child',
+      states: {
+        child: {}
+      }
+    }
+  }
+});
+
+const actor = createActor(machine).start();
+const state = actor.getSnapshot();
+
+// Check parent state
+console.log(state.matches('parent')); // true
+
+// Check nested state
+console.log(state.matches({ parent: 'child' })); // true
+
+// Shorthand for checking nested state
+console.log(state.matches({ parent: { child: true } })); // true
+```
+
+<Warning>
+When targeting a parent state from outside, make sure to specify which child state to enter, or ensure the parent has an `initial` property defined.
+</Warning>
+
+## Best Practices
+
+1. **Use meaningful hierarchy**: Group related states together
+2. **Keep nesting shallow**: Too many levels make the machine hard to understand
+3. **Use IDs for deep targets**: IDs make it easier to reference states from anywhere
+4. **Share common transitions**: Define common transitions at the parent level
+5. **Document complex hierarchies**: Add descriptions to clarify the structure
+
+<Tip>
+Hierarchical states are ideal for modeling UI navigation, multi-step forms, and complex workflows where states naturally group together.
+</Tip>

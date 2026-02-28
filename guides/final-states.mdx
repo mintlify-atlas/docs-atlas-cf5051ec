@@ -1,0 +1,484 @@
+---
+title: Final States
+description: Model completion and trigger done events
+---
+
+Final states represent the completion of a state machine or a compound state. When a machine reaches a final state, it stops processing events and can emit a "done" event with output data.
+
+## What are Final States?
+
+Final states indicate that a process has completed successfully. They have special semantics:
+
+- They don't accept any transitions (they're terminal)
+- They trigger `onDone` transitions in their parent state
+- They can produce output data
+- The machine stops when reaching a top-level final state
+
+<Note>
+A final state is defined by setting `type: 'final'` on a state configuration.
+</Note>
+
+## Creating Final States
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'loading',
+  states: {
+    loading: {
+      on: {
+        SUCCESS: 'success',
+        ERROR: 'failure'
+      }
+    },
+    success: {
+      type: 'final'
+    },
+    failure: {
+      type: 'final'
+    }
+  }
+});
+
+const actor = createActor(machine);
+actor.subscribe((state) => {
+  console.log('Status:', state.status);
+  console.log('Value:', state.value);
+});
+
+actor.start();
+// Status: active
+// Value: loading
+
+actor.send({ type: 'SUCCESS' });
+// Status: done
+// Value: success
+```
+
+## Machine Status
+
+The machine's `status` property indicates its execution state:
+
+- `'active'` - The machine is running
+- `'done'` - The machine has reached a final state
+- `'error'` - The machine encountered an error
+- `'stopped'` - The machine was explicitly stopped
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'running',
+  states: {
+    running: {
+      on: { FINISH: 'complete' }
+    },
+    complete: {
+      type: 'final'
+    }
+  }
+});
+
+const actor = createActor(machine).start();
+
+console.log(actor.getSnapshot().status); // 'active'
+
+actor.send({ type: 'FINISH' });
+
+console.log(actor.getSnapshot().status); // 'done'
+```
+
+## Output Data
+
+Final states can produce output using the `output` property:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'processing',
+  context: { items: [] },
+  states: {
+    processing: {
+      on: { COMPLETE: 'done' }
+    },
+    done: {
+      type: 'final',
+      output: ({ context }) => ({
+        message: 'Processing complete',
+        itemCount: context.items.length,
+        timestamp: Date.now()
+      })
+    }
+  }
+});
+
+const actor = createActor(machine).start();
+
+actor.send({ type: 'COMPLETE' });
+
+const snapshot = actor.getSnapshot();
+if (snapshot.status === 'done') {
+  console.log(snapshot.output);
+  // {
+  //   message: 'Processing complete',
+  //   itemCount: 0,
+  //   timestamp: 1234567890
+  // }
+}
+```
+
+## onDone Transitions
+
+When a child compound state reaches a final state, the parent can transition using `onDone`:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'task',
+  states: {
+    task: {
+      initial: 'step1',
+      states: {
+        step1: {
+          on: { NEXT: 'step2' }
+        },
+        step2: {
+          on: { NEXT: 'step3' }
+        },
+        step3: {
+          on: { NEXT: 'complete' }
+        },
+        complete: {
+          type: 'final',
+          output: { result: 'All steps completed' }
+        }
+      },
+      onDone: {
+        target: 'finished',
+        actions: ({ event }) => {
+          console.log('Task done with output:', event.output);
+        }
+      }
+    },
+    finished: {
+      entry: () => console.log('Workflow finished!')
+    }
+  }
+});
+
+const actor = createActor(machine).start();
+
+actor.send({ type: 'NEXT' });
+actor.send({ type: 'NEXT' });
+actor.send({ type: 'NEXT' });
+// logs:
+// "Task done with output: { result: 'All steps completed' }"
+// "Workflow finished!"
+```
+
+## Done Events
+
+When a state with children reaches a final state, it emits a done event:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  id: 'parent',
+  initial: 'child',
+  states: {
+    child: {
+      initial: 'active',
+      states: {
+        active: {
+          on: { FINISH: 'done' }
+        },
+        done: {
+          type: 'final'
+        }
+      },
+      onDone: 'parentDone'
+    },
+    parentDone: {
+      entry: () => console.log('Child completed!')
+    }
+  }
+});
+
+// Done event type: 'xstate.done.state.parent.child'
+```
+
+## Checking for Completion
+
+You can check if a machine has completed:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'active',
+  states: {
+    active: {
+      on: { STOP: 'stopped' }
+    },
+    stopped: {
+      type: 'final'
+    }
+  }
+});
+
+const actor = createActor(machine).start();
+
+const checkStatus = () => {
+  const snapshot = actor.getSnapshot();
+  
+  if (snapshot.status === 'done') {
+    console.log('Machine has completed');
+    console.log('Final state:', snapshot.value);
+    if (snapshot.output) {
+      console.log('Output:', snapshot.output);
+    }
+  }
+};
+
+actor.subscribe(checkStatus);
+actor.send({ type: 'STOP' });
+```
+
+## Parallel States and Final States
+
+A parallel state reaches completion when **all** of its regions reach final states:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'working',
+  states: {
+    working: {
+      type: 'parallel',
+      states: {
+        task1: {
+          initial: 'pending',
+          states: {
+            pending: {
+              on: { COMPLETE_1: 'done' }
+            },
+            done: {
+              type: 'final'
+            }
+          }
+        },
+        task2: {
+          initial: 'pending',
+          states: {
+            pending: {
+              on: { COMPLETE_2: 'done' }
+            },
+            done: {
+              type: 'final'
+            }
+          }
+        }
+      },
+      onDone: {
+        target: 'allComplete',
+        actions: () => console.log('All tasks finished!')
+      }
+    },
+    allComplete: {
+      entry: () => console.log('Everything is done!')
+    }
+  }
+});
+
+const actor = createActor(machine).start();
+
+actor.send({ type: 'COMPLETE_1' });
+// Task 1 done, but machine still active
+
+actor.send({ type: 'COMPLETE_2' });
+// logs:
+// "All tasks finished!"
+// "Everything is done!"
+```
+
+<Steps>
+
+### Order of Events
+
+1. Child state reaches final state
+2. Parent's `onDone` transition is taken
+3. Exit actions from child final state execute
+4. Transition actions from `onDone` execute
+5. Entry actions for target state execute
+
+</Steps>
+
+## Invoked Actors and Final States
+
+When an invoked actor reaches a final state, the parent machine can handle it:
+
+```typescript
+import { createMachine, createActor, fromPromise } from 'xstate';
+
+const fetchUser = fromPromise(async ({ input }) => {
+  const response = await fetch(`/api/users/${input.userId}`);
+  return response.json();
+});
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: { FETCH: 'loading' }
+    },
+    loading: {
+      invoke: {
+        src: fetchUser,
+        input: ({ event }) => ({ userId: event.userId }),
+        onDone: {
+          target: 'success',
+          actions: ({ event }) => {
+            console.log('User loaded:', event.output);
+          }
+        },
+        onError: {
+          target: 'error',
+          actions: ({ event }) => {
+            console.error('Failed to load user:', event.error);
+          }
+        }
+      }
+    },
+    success: {
+      type: 'final'
+    },
+    error: {
+      on: { RETRY: 'loading' }
+    }
+  }
+});
+```
+
+## Multi-Step Workflow
+
+A complete example showing final states in a multi-step process:
+
+```typescript
+import { createMachine, assign } from 'xstate';
+
+const workflowMachine = createMachine({
+  initial: 'input',
+  context: {
+    data: null,
+    result: null
+  },
+  states: {
+    input: {
+      on: {
+        SUBMIT: {
+          target: 'processing',
+          actions: assign({
+            data: ({ event }) => event.data
+          })
+        }
+      }
+    },
+    processing: {
+      initial: 'validating',
+      states: {
+        validating: {
+          on: {
+            VALID: 'saving',
+            INVALID: '#error'
+          }
+        },
+        saving: {
+          on: {
+            SAVED: 'notifying'
+          }
+        },
+        notifying: {
+          on: {
+            NOTIFIED: 'done'
+          }
+        },
+        done: {
+          type: 'final',
+          output: ({ context }) => ({
+            success: true,
+            processedData: context.data
+          })
+        }
+      },
+      onDone: {
+        target: 'complete',
+        actions: assign({
+          result: ({ event }) => event.output
+        })
+      }
+    },
+    error: {
+      id: 'error',
+      on: {
+        RETRY: 'input'
+      }
+    },
+    complete: {
+      type: 'final',
+      entry: () => console.log('Workflow complete!')
+    }
+  }
+});
+```
+
+<Warning>
+Final states cannot have transitions defined. Once reached, they are terminal within their scope. Only parent states can react to child final states via `onDone`.
+</Warning>
+
+## Testing Final States
+
+Final states make testing completion scenarios straightforward:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'active',
+  states: {
+    active: {
+      on: { FINISH: 'done' }
+    },
+    done: {
+      type: 'final',
+      output: { completed: true }
+    }
+  }
+});
+
+// Test
+const actor = createActor(machine).start();
+actor.send({ type: 'FINISH' });
+
+const snapshot = actor.getSnapshot();
+
+expect(snapshot.status).toBe('done');
+expect(snapshot.output).toEqual({ completed: true });
+expect(snapshot.matches('done')).toBe(true);
+```
+
+<Tip>
+Use final states to model successful completion, and use `output` to return results. This makes your state machines composable and easy to integrate with other systems.
+</Tip>
+
+## Best Practices
+
+1. **Use output for results**: Return meaningful data from final states
+2. **Handle both success and failure**: Consider having multiple final states for different outcomes
+3. **Test completion**: Verify that final states are reached in expected scenarios
+4. **Document completion**: Make it clear what a final state represents
+5. **Compose with onDone**: Use final states to coordinate between parent and child machines

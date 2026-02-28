@@ -1,0 +1,467 @@
+---
+title: Context
+description: Managing state data with context in XState
+---
+
+## What is context?
+
+Context is extended state data associated with a state machine. While states represent finite modes, context holds quantitative data that can have infinite values.
+
+<Note>
+Think of states as the "mode" of your application (loading, success, error) and context as the "data" (user info, count, items).
+</Note>
+
+## Defining context
+
+Define initial context in your machine:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const counterMachine = createMachine({
+  id: 'counter',
+  initial: 'active',
+  context: {
+    count: 0,
+    step: 1
+  },
+  states: {
+    active: {
+      on: {
+        INCREMENT: {
+          actions: ({ context }) => {
+            context.count += context.step;
+          }
+        }
+      }
+    }
+  }
+});
+```
+
+## TypeScript context
+
+Type your context with `setup()`:
+
+```typescript
+import { setup } from 'xstate';
+
+const machine = setup({
+  types: {
+    context: {} as {
+      count: number;
+      user: { name: string; email: string } | null;
+      items: string[];
+    }
+  }
+}).createMachine({
+  context: {
+    count: 0,
+    user: null,
+    items: []
+  }
+});
+```
+
+## Updating context
+
+Use the `assign` action to update context:
+
+```typescript
+import { setup, assign } from 'xstate';
+
+const machine = setup({
+  types: {
+    context: {} as { count: number },
+    events: {} as { type: 'INCREMENT'; value: number } | { type: 'RESET' }
+  }
+}).createMachine({
+  context: { count: 0 },
+  initial: 'active',
+  states: {
+    active: {
+      on: {
+        INCREMENT: {
+          actions: assign({
+            count: ({ context, event }) => context.count + event.value
+          })
+        },
+        RESET: {
+          actions: assign({
+            count: 0
+          })
+        }
+      }
+    }
+  }
+});
+```
+
+### Assign patterns
+
+#### Static values
+
+```typescript
+assign({
+  status: 'active',
+  count: 0
+})
+```
+
+#### Dynamic values
+
+```typescript
+assign({
+  count: ({ context }) => context.count + 1,
+  timestamp: () => Date.now()
+})
+```
+
+#### Using event data
+
+```typescript
+assign({
+  user: ({ event }) => event.userData,
+  lastEvent: ({ event }) => event.type
+})
+```
+
+#### Partial updates
+
+```typescript
+assign({
+  user: ({ context, event }) => ({
+    ...context.user,
+    name: event.newName
+  })
+})
+```
+
+## Reading context
+
+Access context from the snapshot:
+
+```typescript
+import { createActor } from 'xstate';
+
+const actor = createActor(counterMachine);
+actor.start();
+
+const snapshot = actor.getSnapshot();
+console.log(snapshot.context.count); // 0
+
+actor.send({ type: 'INCREMENT', value: 5 });
+console.log(actor.getSnapshot().context.count); // 5
+```
+
+## Initial context from input
+
+Provide context at runtime:
+
+```typescript
+import { setup } from 'xstate';
+
+const machine = setup({
+  types: {
+    context: {} as { userId: string; count: number },
+    input: {} as { userId: string }
+  }
+}).createMachine({
+  context: ({ input }) => ({
+    userId: input.userId,
+    count: 0
+  }),
+  initial: 'active',
+  states: {
+    active: {}
+  }
+});
+
+const actor = createActor(machine, {
+  input: { userId: 'user-123' }
+});
+
+actor.start();
+console.log(actor.getSnapshot().context.userId); // 'user-123'
+```
+
+## Context in guards
+
+Use context in conditional logic:
+
+```typescript
+import { setup } from 'xstate';
+
+const machine = setup({
+  types: {
+    context: {} as { count: number }
+  },
+  guards: {
+    isMaxReached: ({ context }) => context.count >= 10,
+    isPositive: ({ context }) => context.count > 0
+  }
+}).createMachine({
+  context: { count: 0 },
+  initial: 'active',
+  states: {
+    active: {
+      on: {
+        INCREMENT: {
+          guard: { type: 'not', guard: 'isMaxReached' },
+          actions: assign({
+            count: ({ context }) => context.count + 1
+          })
+        }
+      }
+    }
+  }
+});
+```
+
+## Context in actions
+
+Access context in action implementations:
+
+```typescript
+import { setup } from 'xstate';
+
+const machine = setup({
+  types: {
+    context: {} as { user: { name: string } }
+  },
+  actions: {
+    greetUser: ({ context }) => {
+      console.log(`Hello, ${context.user.name}!`);
+    },
+    logCount: ({ context }) => {
+      console.log(`Count: ${context.count}`);
+    }
+  }
+}).createMachine({
+  context: {
+    user: { name: 'Guest' },
+    count: 0
+  },
+  initial: 'active',
+  states: {
+    active: {
+      entry: 'greetUser'
+    }
+  }
+});
+```
+
+## Context and actors
+
+Pass context to invoked actors:
+
+```typescript
+import { setup, fromPromise } from 'xstate';
+
+const fetchUser = fromPromise(async ({ input }: { input: { userId: string } }) => {
+  const response = await fetch(`/api/users/${input.userId}`);
+  return response.json();
+});
+
+const machine = setup({
+  types: {
+    context: {} as { userId: string; userData: any }
+  },
+  actors: {
+    fetchUser
+  }
+}).createMachine({
+  context: {
+    userId: '',
+    userData: null
+  },
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        FETCH: 'loading'
+      }
+    },
+    loading: {
+      invoke: {
+        src: 'fetchUser',
+        input: ({ context }) => ({ userId: context.userId }),
+        onDone: {
+          target: 'success',
+          actions: assign({
+            userData: ({ event }) => event.output
+          })
+        }
+      }
+    },
+    success: {}
+  }
+});
+```
+
+## Immutability
+
+<Warning>
+Always treat context as immutable. Create new objects instead of mutating existing ones.
+</Warning>
+
+### Good - Immutable update
+
+```typescript
+assign({
+  items: ({ context }) => [...context.items, newItem]
+})
+```
+
+### Bad - Mutation
+
+```typescript
+// Don't do this!
+assign({
+  items: ({ context }) => {
+    context.items.push(newItem);
+    return context.items;
+  }
+})
+```
+
+## Using Immer
+
+For complex updates, use Immer with `@xstate/immer`:
+
+```typescript
+import { createMachine } from 'xstate';
+import { assign } from '@xstate/immer';
+
+const machine = createMachine({
+  context: {
+    user: {
+      profile: {
+        settings: {
+          notifications: true
+        }
+      }
+    }
+  },
+  initial: 'active',
+  states: {
+    active: {
+      on: {
+        TOGGLE_NOTIFICATIONS: {
+          actions: assign((context) => {
+            // Mutate with Immer - it creates immutable update
+            context.user.profile.settings.notifications = 
+              !context.user.profile.settings.notifications;
+          })
+        }
+      }
+    }
+  }
+});
+```
+
+## Best practices
+
+<Tip>
+Keep context minimal. Only store data that affects machine behavior or needs to be persisted.
+</Tip>
+
+<Tip>
+Use TypeScript to type your context. This prevents errors and improves developer experience.
+</Tip>
+
+<Tip>
+Avoid storing derived data in context. Calculate it from existing context when needed.
+</Tip>
+
+<Tip>
+Separate concerns: use states for modes/phases, context for data.
+</Tip>
+
+## Example: Todo list
+
+```typescript
+import { setup, assign } from 'xstate';
+
+interface Todo {
+  id: string;
+  text: string;
+  completed: boolean;
+}
+
+const todoMachine = setup({
+  types: {
+    context: {} as {
+      todos: Todo[];
+      filter: 'all' | 'active' | 'completed';
+    },
+    events: {} as
+      | { type: 'ADD'; text: string }
+      | { type: 'TOGGLE'; id: string }
+      | { type: 'DELETE'; id: string }
+      | { type: 'SET_FILTER'; filter: 'all' | 'active' | 'completed' }
+  }
+}).createMachine({
+  context: {
+    todos: [],
+    filter: 'all'
+  },
+  initial: 'active',
+  states: {
+    active: {
+      on: {
+        ADD: {
+          actions: assign({
+            todos: ({ context, event }) => [
+              ...context.todos,
+              {
+                id: Math.random().toString(),
+                text: event.text,
+                completed: false
+              }
+            ]
+          })
+        },
+        TOGGLE: {
+          actions: assign({
+            todos: ({ context, event }) =>
+              context.todos.map(todo =>
+                todo.id === event.id
+                  ? { ...todo, completed: !todo.completed }
+                  : todo
+              )
+          })
+        },
+        DELETE: {
+          actions: assign({
+            todos: ({ context, event }) =>
+              context.todos.filter(todo => todo.id !== event.id)
+          })
+        },
+        SET_FILTER: {
+          actions: assign({
+            filter: ({ event }) => event.filter
+          })
+        }
+      }
+    }
+  }
+});
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Assign action" icon="pen" href="/api/actions/assign">
+    Full assign action reference
+  </Card>
+  <Card title="TypeScript" icon="code" href="/advanced/typescript">
+    Type-safe state machines
+  </Card>
+  <Card title="Actions" icon="bolt" href="/guides/actions">
+    Learn about actions
+  </Card>
+  <Card title="Guards" icon="shield" href="/guides/guards">
+    Use context in guards
+  </Card>
+</CardGroup>

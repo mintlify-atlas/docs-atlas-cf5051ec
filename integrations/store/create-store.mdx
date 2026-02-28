@@ -1,0 +1,400 @@
+---
+title: Creating Stores
+description: Create and configure XState stores with events, effects, and Immer support
+---
+
+Create stores using `createStore()` with context and event handlers.
+
+## Basic Store Creation
+
+### Type Signature
+
+```typescript
+function createStore<
+  TContext extends StoreContext,
+  TEventPayloadMap extends EventPayloadMap,
+  TEmittedPayloadMap extends EventPayloadMap
+>(
+  definition: StoreConfig<TContext, TEventPayloadMap, TEmittedPayloadMap>
+): Store<TContext, TEventPayloadMap, ExtractEvents<TEmittedPayloadMap>>
+```
+
+### Simple Example
+
+```typescript
+import { createStore } from '@xstate/store';
+
+const counterStore = createStore({
+  context: { count: 0 },
+  on: {
+    increment: (context) => ({
+      ...context,
+      count: context.count + 1
+    }),
+    decrement: (context) => ({
+      ...context,
+      count: context.count - 1
+    }),
+    incrementBy: (context, event: { value: number }) => ({
+      ...context,
+      count: context.count + event.value
+    })
+  }
+});
+```
+
+## Event Handlers
+
+Event handlers are functions that receive the current context and event, returning the next context.
+
+### Event Handler Signature
+
+```typescript
+type StoreAssigner<TContext, TEvent, TEmitted> = (
+  context: TContext,
+  event: TEvent,
+  enqueue: EnqueueObject<TEmitted>
+) => TContext | void
+```
+
+### Returning New Context
+
+Always return a new context object (or `void` when using Immer):
+
+```typescript
+const todoStore = createStore({
+  context: {
+    todos: [] as Array<{ id: string; text: string; completed: boolean }>
+  },
+  on: {
+    addTodo: (context, event: { id: string; text: string }) => ({
+      ...context,
+      todos: [
+        ...context.todos,
+        { id: event.id, text: event.text, completed: false }
+      ]
+    }),
+    toggleTodo: (context, event: { id: string }) => ({
+      ...context,
+      todos: context.todos.map((todo) =>
+        todo.id === event.id
+          ? { ...todo, completed: !todo.completed }
+          : todo
+      )
+    }),
+    removeTodo: (context, event: { id: string }) => ({
+      ...context,
+      todos: context.todos.filter((todo) => todo.id !== event.id)
+    })
+  }
+});
+```
+
+<Note>
+  Event handlers must return a new context object for the store to detect changes. Mutating the context directly won't trigger updates.
+</Note>
+
+## Sending Events
+
+### Using `send()`
+
+```typescript
+store.send({ type: 'incrementBy', value: 5 });
+```
+
+### Using `trigger` (Recommended)
+
+The `trigger` proxy provides type-safe, convenient event dispatching:
+
+```typescript
+// Type-safe and autocomplete-friendly
+store.trigger.incrementBy({ value: 5 });
+
+// Events without payload
+store.trigger.increment();
+```
+
+## Side Effects
+
+Use the `enqueue` parameter to schedule effects:
+
+### Enqueue Effects
+
+```typescript
+const store = createStore({
+  context: { user: null as { id: string; name: string } | null },
+  on: {
+    login: (context, event: { userId: string }, enqueue) => {
+      // Schedule side effect
+      enqueue.effect(() => {
+        console.log('User logged in:', event.userId);
+        // Call analytics, save to localStorage, etc.
+        localStorage.setItem('userId', event.userId);
+      });
+
+      return {
+        ...context,
+        user: { id: event.userId, name: 'Loading...' }
+      };
+    }
+  }
+});
+```
+
+<Tip>
+  Effects run after the state update completes. Use them for side effects like logging, API calls, or localStorage updates.
+</Tip>
+
+## Emitted Events
+
+Stores can emit events that other parts of your application can listen to:
+
+```typescript
+const store = createStore({
+  context: { count: 0 },
+  on: {
+    increment: (context, event, enqueue) => {
+      const newCount = context.count + 1;
+
+      // Emit event when threshold reached
+      if (newCount >= 10) {
+        enqueue.emit.thresholdReached({ count: newCount });
+      }
+
+      return { ...context, count: newCount };
+    }
+  },
+  emits: {
+    thresholdReached: (payload) => {
+      console.log('Threshold reached!', payload);
+    }
+  }
+});
+
+// Subscribe to emitted events
+store.on('thresholdReached', (event) => {
+  console.log('Count is now:', event.count);
+});
+
+// Wildcard listener for all emitted events
+store.on('*', (event) => {
+  console.log('Event emitted:', event);
+});
+```
+
+## Using Immer for Immutability
+
+Use `createStoreWithProducer()` with Immer for mutable-style updates:
+
+### Type Signature
+
+```typescript
+function createStoreWithProducer<
+  TContext extends StoreContext,
+  TEventPayloadMap extends EventPayloadMap,
+  TEmittedPayloadMap extends EventPayloadMap
+>(
+  producer: (context: TContext, recipe: (context: TContext) => void) => TContext,
+  config: {
+    context: TContext;
+    on: { [K in keyof TEventPayloadMap]: (context: TContext, event: ...) => void };
+    emits?: { ... };
+  }
+): Store<TContext, TEventPayloadMap, ExtractEvents<TEmittedPayloadMap>>
+```
+
+### Example with Immer
+
+```typescript
+import { createStoreWithProducer } from '@xstate/store';
+import { produce } from 'immer';
+
+const store = createStoreWithProducer(produce, {
+  context: {
+    todos: [] as Array<{ id: string; text: string; completed: boolean }>
+  },
+  on: {
+    addTodo: (context, event: { id: string; text: string }) => {
+      // Mutate draft directly - Immer handles immutability
+      context.todos.push({
+        id: event.id,
+        text: event.text,
+        completed: false
+      });
+    },
+    toggleTodo: (context, event: { id: string }) => {
+      const todo = context.todos.find((t) => t.id === event.id);
+      if (todo) {
+        todo.completed = !todo.completed;
+      }
+    },
+    removeTodo: (context, event: { id: string }) => {
+      const index = context.todos.findIndex((t) => t.id === event.id);
+      if (index !== -1) {
+        context.todos.splice(index, 1);
+      }
+    }
+  }
+});
+```
+
+<Note>
+  When using `createStoreWithProducer()`, event handlers don't return a value. They mutate the draft context, and Immer produces the next immutable state.
+</Note>
+
+## Store Configuration Helper
+
+Use `createStoreConfig()` to define reusable store configurations:
+
+```typescript
+import { createStoreConfig, createStore } from '@xstate/store';
+
+const counterConfig = createStoreConfig({
+  context: { count: 0 },
+  on: {
+    increment: (context) => ({ ...context, count: context.count + 1 }),
+    decrement: (context) => ({ ...context, count: context.count - 1 })
+  }
+});
+
+// Use the config to create multiple stores
+const store1 = createStore(counterConfig);
+const store2 = createStore(counterConfig);
+```
+
+## Subscribing to Changes
+
+### Basic Subscription
+
+```typescript
+const subscription = store.subscribe((snapshot) => {
+  console.log('State changed:', snapshot.context);
+});
+
+// Unsubscribe when done
+subscription.unsubscribe();
+```
+
+### Selecting Specific Values
+
+Use `select()` to subscribe to derived values:
+
+```typescript
+const countSelection = store.select((snapshot) => snapshot.context.count);
+
+countSelection.subscribe((count) => {
+  console.log('Count changed:', count);
+});
+
+// Or get the current value
+const currentCount = countSelection.get();
+```
+
+See [store:187-193] for the `select()` type signature.
+
+## Getting State
+
+### Get Snapshot
+
+```typescript
+const snapshot = store.getSnapshot();
+// or
+const snapshot = store.get();
+
+console.log(snapshot);
+// {
+//   status: 'active',
+//   context: { count: 5 },
+//   output: undefined,
+//   error: undefined
+// }
+```
+
+### Access Context Directly
+
+```typescript
+const count = store.get().context.count;
+```
+
+## Store Extensions
+
+Extend stores with additional functionality using the `.with()` method:
+
+```typescript
+import { undoRedo } from '@xstate/store/undo';
+
+const store = createStore({
+  context: { count: 0 },
+  on: {
+    increment: (ctx) => ({ count: ctx.count + 1 }),
+    decrement: (ctx) => ({ count: ctx.count - 1 })
+  }
+}).with(undoRedo());
+
+// Extension adds new events
+store.trigger.increment();
+store.trigger.undo(); // Reverts to previous state
+store.trigger.redo(); // Reapplies the increment
+```
+
+<Note>
+  Store extensions transform the store logic and can add new events. They're composable via the `.with()` method.
+</Note>
+
+## Inspection
+
+Inspect store events and state changes:
+
+```typescript
+store.inspect((inspectionEvent) => {
+  if (inspectionEvent.type === '@xstate.snapshot') {
+    console.log('State:', inspectionEvent.snapshot);
+    console.log('Event:', inspectionEvent.event);
+  }
+});
+```
+
+### Inspection Event Types
+
+- `@xstate.actor` - Store initialized
+- `@xstate.snapshot` - State changed
+- `@xstate.event` - Event sent to store
+
+## TypeScript Tips
+
+### Infer Event Types
+
+```typescript
+import { EventFromStore } from '@xstate/store';
+
+const store = createStore({
+  context: { count: 0 },
+  on: {
+    increment: (ctx) => ({ count: ctx.count + 1 }),
+    setValue: (ctx, event: { value: number }) => ({ count: event.value })
+  }
+});
+
+type StoreEvent = EventFromStore<typeof store>;
+// { type: 'increment' } | { type: 'setValue', value: number }
+```
+
+### Infer Snapshot Type
+
+```typescript
+import { SnapshotFromStore } from '@xstate/store';
+
+type StoreSnapshot = SnapshotFromStore<typeof store>;
+// StoreSnapshot<{ count: number }>
+```
+
+## Next Steps
+
+<Cards>
+  <Card title="Atoms API" href="/docs/integrations/store/atoms">
+    Use atoms for fine-grained reactive values
+  </Card>
+  <Card title="Framework Bindings" href="/docs/integrations/store/framework-bindings">
+    Integrate stores with React, Solid, and Vue
+  </Card>
+</Cards>

@@ -1,0 +1,503 @@
+---
+title: Events
+description: Understanding events in XState state machines
+---
+
+## What are events?
+
+Events are objects that trigger transitions in state machines. They represent things that happen - user actions, system notifications, timer expirations, or any other occurrence that the machine should respond to.
+
+<Note>
+All events in XState must be objects with a `type` property.
+</Note>
+
+## Event structure
+
+The simplest event:
+
+```typescript
+{ type: 'SUBMIT' }
+```
+
+Events with payload data:
+
+```typescript
+{
+  type: 'UPDATE_USER',
+  name: 'Alice',
+  email: 'alice@example.com'
+}
+```
+
+## Sending events
+
+Send events to actors using `send()`:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        START: 'running'
+      }
+    },
+    running: {
+      on: {
+        STOP: 'idle'
+      }
+    }
+  }
+});
+
+const actor = createActor(machine);
+actor.start();
+
+// Send events
+actor.send({ type: 'START' });
+actor.send({ type: 'STOP' });
+```
+
+## TypeScript event types
+
+Define event types for type safety:
+
+```typescript
+import { setup } from 'xstate';
+
+const machine = setup({
+  types: {
+    events: {} as
+      | { type: 'SUBMIT'; data: string }
+      | { type: 'CANCEL' }
+      | { type: 'UPDATE'; field: string; value: string }
+  }
+}).createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        SUBMIT: 'processing',
+        CANCEL: 'cancelled'
+      }
+    },
+    processing: {},
+    cancelled: {}
+  }
+});
+```
+
+Now TypeScript will enforce correct event structure:
+
+```typescript
+// ✓ Valid
+actor.send({ type: 'SUBMIT', data: 'hello' });
+
+// ✗ Type error - missing 'data' property
+actor.send({ type: 'SUBMIT' });
+
+// ✗ Type error - unknown event type
+actor.send({ type: 'UNKNOWN' });
+```
+
+## Accessing event data
+
+Event data is available in actions, guards, and other machine logic:
+
+### In actions
+
+```typescript
+import { setup, assign } from 'xstate';
+
+const machine = setup({
+  types: {
+    context: {} as { message: string },
+    events: {} as { type: 'SET_MESSAGE'; text: string }
+  }
+}).createMachine({
+  context: { message: '' },
+  initial: 'active',
+  states: {
+    active: {
+      on: {
+        SET_MESSAGE: {
+          actions: [
+            ({ event }) => console.log('Received:', event.text),
+            assign({
+              message: ({ event }) => event.text
+            })
+          ]
+        }
+      }
+    }
+  }
+});
+```
+
+### In guards
+
+```typescript
+import { setup } from 'xstate';
+
+const machine = setup({
+  types: {
+    events: {} as { type: 'SUBMIT'; age: number }
+  },
+  guards: {
+    isAdult: ({ event }) => {
+      return event.type === 'SUBMIT' && event.age >= 18;
+    }
+  }
+}).createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        SUBMIT: [
+          {
+            guard: 'isAdult',
+            target: 'adult'
+          },
+          {
+            target: 'minor'
+          }
+        ]
+      }
+    },
+    adult: {},
+    minor: {}
+  }
+});
+```
+
+### In invoked actors
+
+```typescript
+import { setup, fromPromise } from 'xstate';
+
+const fetchData = fromPromise(async ({ input }: { input: { id: string } }) => {
+  const response = await fetch(`/api/data/${input.id}`);
+  return response.json();
+});
+
+const machine = setup({
+  types: {
+    events: {} as { type: 'FETCH'; id: string }
+  },
+  actors: {
+    fetchData
+  }
+}).createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        FETCH: 'loading'
+      }
+    },
+    loading: {
+      invoke: {
+        src: 'fetchData',
+        input: ({ event }) => ({ id: event.id }),
+        onDone: 'success',
+        onError: 'error'
+      }
+    },
+    success: {},
+    error: {}
+  }
+});
+```
+
+## Event patterns
+
+### Multiple transitions for same event
+
+```typescript
+states: {
+  idle: {
+    on: {
+      CLICK: [
+        { guard: 'isDoubleClick', target: 'selected' },
+        { target: 'highlighted' }
+      ]
+    }
+  }
+}
+```
+
+### Wildcard events
+
+Handle any event:
+
+```typescript
+states: {
+  active: {
+    on: {
+      SPECIFIC_EVENT: 'nextState',
+      '*': {
+        actions: ({ event }) => console.log('Unhandled event:', event.type)
+      }
+    }
+  }
+}
+```
+
+### Event namespacing
+
+Organize related events:
+
+```typescript
+type Events =
+  | { type: 'user.login'; credentials: { email: string; password: string } }
+  | { type: 'user.logout' }
+  | { type: 'user.update'; data: UserData }
+  | { type: 'data.fetch'; endpoint: string }
+  | { type: 'data.save'; payload: any };
+```
+
+## Built-in events
+
+### Done events
+
+Automatically sent when actors complete:
+
+```typescript
+import { setup, fromPromise } from 'xstate';
+
+const fetchUser = fromPromise(async () => {
+  const response = await fetch('/api/user');
+  return response.json();
+});
+
+const machine = setup({
+  actors: { fetchUser }
+}).createMachine({
+  initial: 'loading',
+  states: {
+    loading: {
+      invoke: {
+        src: 'fetchUser',
+        onDone: {
+          target: 'success',
+          actions: ({ event }) => {
+            console.log('User data:', event.output);
+          }
+        }
+      }
+    },
+    success: {}
+  }
+});
+```
+
+### Error events
+
+Automatically sent when actors fail:
+
+```typescript
+const machine = setup({
+  actors: { fetchUser }
+}).createMachine({
+  initial: 'loading',
+  states: {
+    loading: {
+      invoke: {
+        src: 'fetchUser',
+        onError: {
+          target: 'error',
+          actions: ({ event }) => {
+            console.error('Failed:', event.error);
+          }
+        }
+      }
+    },
+    error: {}
+  }
+});
+```
+
+## Raising events
+
+Raise events internally without external send:
+
+```typescript
+import { setup, raise } from 'xstate';
+
+const machine = setup({
+  types: {
+    events: {} as
+      | { type: 'BUTTON_CLICK' }
+      | { type: 'INTERNAL_PROCESS' }
+  }
+}).createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        BUTTON_CLICK: {
+          actions: raise({ type: 'INTERNAL_PROCESS' })
+        },
+        INTERNAL_PROCESS: 'processing'
+      }
+    },
+    processing: {}
+  }
+});
+```
+
+<Tip>
+Use `raise` for internal coordination between parts of your machine.
+</Tip>
+
+## Emitting events
+
+Emit events to parent machines or external observers:
+
+```typescript
+import { setup, emit } from 'xstate';
+
+const childMachine = setup({
+  types: {
+    events: {} as { type: 'DO_WORK' },
+    emitted: {} as { type: 'WORK_DONE'; result: string }
+  }
+}).createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        DO_WORK: {
+          actions: emit({
+            type: 'WORK_DONE',
+            result: 'completed'
+          })
+        }
+      }
+    }
+  }
+});
+```
+
+## Delayed events
+
+Schedule events to be sent after a delay:
+
+```typescript
+import { setup, sendTo } from 'xstate';
+
+const machine = setup({}).createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        START: {
+          target: 'waiting',
+          actions: sendTo(
+            ({ self }) => self,
+            { type: 'TIMEOUT' },
+            { delay: 5000 }
+          )
+        }
+      }
+    },
+    waiting: {
+      on: {
+        TIMEOUT: 'done'
+      }
+    },
+    done: {}
+  }
+});
+```
+
+Or use `after` for cleaner syntax:
+
+```typescript
+const machine = createMachine({
+  initial: 'waiting',
+  states: {
+    waiting: {
+      after: {
+        5000: 'timeout'
+      }
+    },
+    timeout: {}
+  }
+});
+```
+
+## Event assertions
+
+Assert event types for type narrowing:
+
+```typescript
+import { assertEvent } from 'xstate';
+
+const machine = setup({
+  types: {
+    events: {} as
+      | { type: 'SUBMIT'; data: string }
+      | { type: 'CANCEL' }
+  },
+  actions: {
+    handleSubmit: ({ event }) => {
+      assertEvent(event, 'SUBMIT');
+      // TypeScript now knows event has 'data' property
+      console.log(event.data);
+    }
+  }
+}).createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        SUBMIT: {
+          actions: 'handleSubmit'
+        }
+      }
+    }
+  }
+});
+```
+
+## Best practices
+
+<Tip>
+Use UPPER_CASE for event types to distinguish them from other strings.
+</Tip>
+
+<Tip>
+Keep event names descriptive and action-oriented: `FORM_SUBMITTED`, `DATA_LOADED`, `USER_LOGGED_OUT`.
+</Tip>
+
+<Tip>
+Namespace related events: `user.login`, `user.logout`, `user.update`.
+</Tip>
+
+<Tip>
+Include all relevant data in the event payload rather than relying on external state.
+</Tip>
+
+<Warning>
+Don't mutate event objects. They should be treated as immutable.
+</Warning>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Transitions" icon="arrow-right" href="/concepts/transitions">
+    Learn how events trigger transitions
+  </Card>
+  <Card title="Actions" icon="bolt" href="/guides/actions">
+    Respond to events with actions
+  </Card>
+  <Card title="Raise action" icon="arrow-turn-up" href="/api/actions/raise">
+    Raise internal events
+  </Card>
+  <Card title="Emit action" icon="broadcast-tower" href="/api/actions/emit">
+    Emit events to observers
+  </Card>
+</CardGroup>

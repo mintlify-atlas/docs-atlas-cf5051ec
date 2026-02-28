@@ -1,0 +1,516 @@
+---
+title: Breaking Changes in v5
+description: Complete reference of all breaking changes in XState v5
+---
+
+This page provides a comprehensive reference of all breaking changes introduced in XState v5. For a guided migration, see the [v4 to v5 migration guide](/migration/v4-to-v5).
+
+## API Changes
+
+### interpret() → createActor()
+
+<Warning>
+`interpret()` has been completely removed. Use `createActor()` instead.
+</Warning>
+
+```diff
+-import { interpret } from 'xstate';
++import { createActor } from 'xstate';
+
+-const service = interpret(machine).start();
++const actor = createActor(machine).start();
+```
+
+### String Events No Longer Supported
+
+<Warning>
+`actorRef.send('EVENT')` will throw an error. Events must be objects.
+</Warning>
+
+```diff
+-actorRef.send('TOGGLE');
++actorRef.send({ type: 'TOGGLE' });
+
+-actorRef.send('EVENT', { data: 'value' });
++actorRef.send({ type: 'EVENT', data: 'value' });
+```
+
+### schema → types
+
+<Warning>
+The `schema` property is no longer recognized. Use `types` instead.
+</Warning>
+
+```diff
+const machine = createMachine({
+- schema: {
+-   context: {} as { count: number }
+- },
++ types: {} as {
++   context: { count: number };
++ },
+  context: { count: 0 }
+});
+```
+
+### Context Property Required When Types Specified
+
+<Warning>
+If you define context types, you must provide an initial `context` value.
+</Warning>
+
+```typescript
+// ❌ Will cause TypeScript error
+createMachine({
+  types: {} as { context: { count: number } }
+});
+
+// ✅ Correct
+createMachine({
+  types: {} as { context: { count: number } },
+  context: { count: 0 }
+});
+```
+
+### data → output
+
+<Warning>
+The `data` property on final states has been removed. Use `output` instead.
+</Warning>
+
+```diff
+states: {
+  success: {
+    type: 'final',
+-   data: { result: 42 }
++   output: { result: 42 }
+  }
+}
+```
+
+### external → reenter
+
+<Warning>
+The `external` property on transitions has been renamed to `reenter`.
+</Warning>
+
+```diff
+on: {
+  EVENT: {
+    target: 'sameState',
+-   external: true
++   reenter: true
+  }
+}
+```
+
+### in Property Removed
+
+<Warning>
+The `in` transition property has been removed. Use `stateIn()` guard instead.
+</Warning>
+
+```diff
++import { stateIn } from 'xstate/guards';
+
+on: {
+  EVENT: {
+    target: 'target',
+-   in: '#someState'
++   guard: stateIn('#someState')
+  }
+}
+```
+
+### autoForward Removed
+
+<Warning>
+Auto-forwarding events is no longer supported. Explicitly forward events using `sendTo()`.
+</Warning>
+
+```diff
+invoke: {
+  id: 'child',
+  src: childMachine,
+- autoForward: true
+},
++on: {
++  FORWARD_THIS: {
++    actions: sendTo('child', (_, event) => event)
++  }
++}
+```
+
+### machine.initialState Removed
+
+<Warning>
+`machine.initialState` has been removed. Use `machine.getInitialState()` instead.
+</Warning>
+
+```diff
+-const initialState = machine.initialState;
++const initialState = machine.getInitialState();
+```
+
+### machine.withConfig() → machine.provide()
+
+<Warning>
+`withConfig()` has been renamed to `provide()`.
+</Warning>
+
+```diff
+-const configuredMachine = machine.withConfig({
++const configuredMachine = machine.provide({
+  actions: { /* ... */ }
+});
+```
+
+### machine.transition() Context Parameter Removed
+
+<Warning>
+The third parameter (context) has been removed from `machine.transition()`.
+</Warning>
+
+```diff
+-machine.transition('green', { type: 'TIMER' }, { elapsed: 100 });
++machine.transition(
++  machine.resolveState({ value: 'green', context: { elapsed: 100 } }),
++  { type: 'TIMER' }
++);
+```
+
+## State/Snapshot Changes
+
+### State Properties Removed
+
+<Warning>
+The following properties have been removed from state/snapshot objects:
+</Warning>
+
+- `state.events` - No replacement
+- `state.nextEvents` - No replacement
+- `state.toStrings()` - No replacement
+- `state.activities` - Activities are now part of `invoke` declarations
+
+### State Restoration API Changed
+
+<Warning>
+Restoring state now uses the `snapshot` option instead of passing state to `start()`.
+</Warning>
+
+```diff
+-interpret(machine).start(persistedState);
++createActor(machine, { snapshot: persistedSnapshot }).start();
+```
+
+Get persisted state:
+
+```diff
+-const state = actor.getSnapshot();
++const persistedSnapshot = actor.getPersistedSnapshot();
+```
+
+### Restored State No Longer Contains Actions
+
+<Warning>
+Restored snapshots no longer include actions, as they're assumed to have been executed.
+</Warning>
+
+If you need to replay actions, use event sourcing instead.
+
+## Actor/Service Changes
+
+### Removed Actor Methods
+
+<Warning>
+The following methods have been removed from actor references:
+</Warning>
+
+| Removed | Replacement |
+|---------|-------------|
+| `actorRef.onEvent()` | `actorRef.subscribe()` |
+| `actorRef.onSend()` | `actorRef.subscribe()` |
+| `actorRef.onChange()` | `actorRef.subscribe()` |
+| `actorRef.onStop()` | `actorRef.subscribe({ complete() {} })` |
+| `actorRef.sender()` | `actorRef.send()` |
+
+### send() No Longer Returns Next State
+
+<Warning>
+`actorRef.send()` is now void (fire-and-forget). It no longer returns the next state.
+</Warning>
+
+```diff
+-const nextState = actorRef.send({ type: 'EVENT' });
++actorRef.send({ type: 'EVENT' });
++const nextState = actorRef.getSnapshot();
+```
+
+### Callback Actors Cannot Return Promises
+
+<Warning>
+Returning promises from callback actors is no longer supported. Only cleanup functions (or `undefined`) can be returned.
+</Warning>
+
+```diff
+fromCallback(({ sendBack }) => {
+- return new Promise((resolve) => {
+-   // ...
+- });
++ const cleanup = () => {
++   // cleanup logic
++ };
++ return cleanup;
+});
+```
+
+## Behavior Changes
+
+### assign() Actions Execute in Order
+
+<Warning>
+`assign()` actions are no longer automatically prioritized. They execute in the order defined.
+</Warning>
+
+```typescript
+// In v5, these execute sequentially
+entry: [
+  assign({ count: ({ context }) => context.count + 1 }),
+  assign({ doubled: ({ context }) => context.count * 2 }) // Uses updated count
+]
+```
+
+To maintain v4 behavior, define all `assign()` actions before other actions.
+
+### Eventless Transitions Propagate Original Event
+
+<Warning>
+Actions following eventless transitions now receive the original event, not a null event `{ type: '' }`.
+</Warning>
+
+```javascript
+states: {
+  a: {
+    on: { SOME_EVENT: 'b' }
+  },
+  b: {
+    always: 'c'
+  },
+  c: {
+    entry: ({ event }) => {
+      // v4: event.type === ''
+      // v5: event.type === 'SOME_EVENT'
+    }
+  }
+}
+```
+
+### No Re-entering on Internal Transitions
+
+<Warning>
+Atomic and parallel states are no longer re-entered on internal transitions by default.
+</Warning>
+
+Use `reenter: true` to get the previous behavior:
+
+```javascript
+on: {
+  SELF_TRANSITION: {
+    target: 'sameState',
+    reenter: true // Explicitly re-enter
+  }
+}
+```
+
+### Compound States Must Specify initial
+
+<Warning>
+Compound state nodes without an `initial` property will now throw an error.
+</Warning>
+
+```javascript
+// ❌ Will throw error
+states: {
+  parent: {
+    states: {
+      child1: {},
+      child2: {}
+    }
+  }
+}
+
+// ✅ Correct
+states: {
+  parent: {
+    initial: 'child1',
+    states: {
+      child1: {},
+      child2: {}
+    }
+  }
+}
+```
+
+### Delayed Event IDs No Longer Auto-Generated
+
+<Warning>
+Delayed events no longer derive IDs from event types. You must provide explicit IDs when using `cancel()`.
+</Warning>
+
+```diff
+-entry: raise({ type: 'TIMEOUT' }, { delay: 1000 });
+-exit: cancel('TIMEOUT');
++entry: raise({ type: 'TIMEOUT' }, { delay: 1000, id: 'timeout' });
++exit: cancel('timeout');
+```
+
+## Type System Changes
+
+### Context Must Be an Object
+
+<Warning>
+Machine context is now restricted to `Record<string, any>`. Primitive values are not allowed.
+</Warning>
+
+```typescript
+// ❌ Not allowed
+createMachine({
+  context: 'some string'
+});
+
+// ✅ Use an object
+createMachine({
+  context: { value: 'some string' }
+});
+```
+
+If context is `undefined`, it defaults to `{}`.
+
+### Action Creators Return Functions
+
+<Warning>
+All built-in action creators now return functions. Their exact shape is an implementation detail.
+</Warning>
+
+```typescript
+import { assign } from 'xstate';
+
+// Don't rely on the shape, just pass them to actions
+const increment = assign({ count: ({ context }) => context.count + 1 });
+```
+
+### tsTypes → types.typegen
+
+<Warning>
+The `tsTypes` property has been moved to `types.typegen`.
+</Warning>
+
+```diff
+const machine = createMachine({
+- tsTypes: {},
++ types: {} as {
++   typegen: {};
++   context: { /* ... */ };
++ }
+});
+```
+
+## Other Changes
+
+### Target Resolution from Root
+
+<Warning>
+Targeting sibling states from the root now requires explicit relative syntax.
+</Warning>
+
+```diff
+createMachine({
+  initial: 'a',
+  states: { a: {}, b: {} },
+  on: {
+-   GO_TO_B: 'b'
++   GO_TO_B: '.b'
+  }
+});
+```
+
+### execute Option Removed
+
+<Warning>
+The `execute` option for interpreted services has been removed.
+</Warning>
+
+Don't hardcode implementation details in the base machine. Use `machine.provide()` to extend actions instead.
+
+### Dev Tools Integration Changed
+
+<Warning>
+Redux DevTools is no longer the default integration.
+</Warning>
+
+```javascript
+import { createActor } from 'xstate';
+import { createReduxDevTools } from 'xstate/devTools/redux';
+
+const actor = createActor(machine, {
+  devTools: createReduxDevTools({ /* options */ })
+});
+```
+
+Default dev tools attach to `window.__xstate__`:
+
+```javascript
+const actor = createActor(machine, {
+  devTools: true
+});
+```
+
+### Context Function Removed
+
+<Warning>
+The `context` property no longer accepts a function for determining initial context.
+</Warning>
+
+Use the `input` parameter in `createActor()` instead:
+
+```typescript
+const machine = createMachine({
+  context: ({ input }) => ({
+    value: input.initialValue
+  })
+});
+
+const actor = createActor(machine, {
+  input: { initialValue: 42 }
+});
+```
+
+### State Node Getters Removed
+
+<Warning>
+Support for getters as transition targets has been removed.
+</Warning>
+
+Use state node IDs or relative keys instead.
+
+### Machine() No Longer Accepts Context as Third Argument
+
+<Warning>
+The `Machine()` and `createMachine()` functions no longer support a third argument for context.
+</Warning>
+
+```diff
+-const machine = createMachine(config, options, context);
++const machine = createMachine({ ...config, context });
+```
+
+## Migration Resources
+
+<CardGroup cols={2}>
+  <Card title="Migration Guide" icon="map" href="/migration/v4-to-v5">
+    Step-by-step guide to migrating from v4 to v5
+  </Card>
+  <Card title="Getting Help" icon="circle-question" href="/community/support">
+    Get help with your migration on Discord or GitHub
+  </Card>
+</CardGroup>

@@ -1,0 +1,479 @@
+---
+title: Inspection
+description: Inspecting and debugging XState actors at runtime
+---
+
+Inspection is a powerful debugging technique that allows you to observe actor behavior, events, state transitions, and context changes in real-time. XState provides comprehensive inspection capabilities through the inspection API.
+
+## Inspection API
+
+The inspection API is defined in `inspection.ts:1-60` and provides events for monitoring actor systems:
+
+### Inspection Event Types
+
+XState emits several types of inspection events:
+
+- `@xstate.actor` - A new actor was created
+- `@xstate.event` - An event was sent to an actor
+- `@xstate.snapshot` - An actor emitted a new snapshot
+- `@xstate.microstep` - A microstep was executed (internal transition)
+- `@xstate.action` - An action was executed
+
+```typescript
+import { createActor, createMachine } from 'xstate';
+import { InspectionEvent } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: { START: 'running' }
+    },
+    running: {
+      on: { STOP: 'idle' }
+    }
+  }
+});
+
+const actor = createActor(machine, {
+  inspect: (inspectionEvent: InspectionEvent) => {
+    console.log(inspectionEvent.type);
+    
+    if (inspectionEvent.type === '@xstate.snapshot') {
+      console.log('New snapshot:', inspectionEvent.snapshot.value);
+      console.log('Triggered by event:', inspectionEvent.event);
+    }
+    
+    if (inspectionEvent.type === '@xstate.event') {
+      console.log('Event sent:', inspectionEvent.event);
+      console.log('From:', inspectionEvent.sourceRef);
+      console.log('To:', inspectionEvent.actorRef);
+    }
+    
+    if (inspectionEvent.type === '@xstate.actor') {
+      console.log('Actor created:', inspectionEvent.actorRef);
+    }
+  }
+});
+
+actor.start();
+```
+
+## Inspection Event Details
+
+Each inspection event contains specific information:
+
+### `InspectedSnapshotEvent`
+
+Emitted when an actor produces a new snapshot:
+
+```typescript
+interface InspectedSnapshotEvent {
+  type: '@xstate.snapshot';
+  actorRef: ActorRefLike; // The actor that emitted the snapshot
+  event: AnyEventObject;  // The event that caused the snapshot
+  snapshot: Snapshot<unknown>; // The new snapshot
+  rootId: string; // Session ID of the root actor
+}
+```
+
+### `InspectedEventEvent`
+
+Emitted when an event is sent between actors:
+
+```typescript
+interface InspectedEventEvent {
+  type: '@xstate.event';
+  actorRef: ActorRefLike; // The recipient actor
+  sourceRef: ActorRefLike | undefined; // The sender (undefined for external events)
+  event: AnyEventObject; // The event being sent
+  rootId: string;
+}
+```
+
+### `InspectedActorEvent`
+
+Emitted when a new actor is created:
+
+```typescript
+interface InspectedActorEvent {
+  type: '@xstate.actor';
+  actorRef: ActorRefLike; // The newly created actor
+  rootId: string;
+}
+```
+
+### `InspectedMicrostepEvent`
+
+Emitted during microsteps (internal state transitions):
+
+```typescript
+interface InspectedMicrostepEvent {
+  type: '@xstate.microstep';
+  actorRef: ActorRefLike;
+  event: AnyEventObject;
+  snapshot: Snapshot<unknown>;
+  _transitions: AnyTransitionDefinition[]; // Transitions taken
+  rootId: string;
+}
+```
+
+### `InspectedActionEvent`
+
+Emitted when an action is executed:
+
+```typescript
+interface InspectedActionEvent {
+  type: '@xstate.action';
+  actorRef: ActorRefLike;
+  action: {
+    type: string;
+    params: unknown;
+  };
+  rootId: string;
+}
+```
+
+## Using the Observer Pattern
+
+You can also provide an observer object instead of a callback function:
+
+```typescript
+const actor = createActor(machine, {
+  inspect: {
+    next: (inspectionEvent) => {
+      console.log('Inspection event:', inspectionEvent);
+    },
+    error: (err) => {
+      console.error('Inspection error:', err);
+    },
+    complete: () => {
+      console.log('Inspection complete');
+    }
+  }
+});
+```
+
+## Filtering Inspection Events
+
+You can filter events to inspect only what you need:
+
+```typescript
+const actor = createActor(machine, {
+  inspect: (inspectionEvent) => {
+    // Only log snapshots from the root actor
+    if (
+      inspectionEvent.type === '@xstate.snapshot' &&
+      inspectionEvent.actorRef === actor
+    ) {
+      console.log('Root snapshot:', inspectionEvent.snapshot);
+    }
+    
+    // Only log specific event types
+    if (
+      inspectionEvent.type === '@xstate.event' &&
+      inspectionEvent.event.type === 'ERROR'
+    ) {
+      console.error('Error event:', inspectionEvent.event);
+    }
+  }
+});
+```
+
+## Inspecting Child Actors
+
+Inspection works for the entire actor hierarchy:
+
+```typescript
+import { setup, fromPromise } from 'xstate';
+
+const machine = setup({
+  actors: {
+    fetchData: fromPromise(async () => {
+      return { data: 'example' };
+    })
+  }
+}).createMachine({
+  initial: 'loading',
+  states: {
+    loading: {
+      invoke: {
+        id: 'fetcher',
+        src: 'fetchData',
+        onDone: 'success'
+      }
+    },
+    success: {}
+  }
+});
+
+const actor = createActor(machine, {
+  inspect: (inspectionEvent) => {
+    if (inspectionEvent.type === '@xstate.actor') {
+      console.log('Child actor created:', inspectionEvent.actorRef.id);
+    }
+    
+    // Check if this is the root actor
+    if (inspectionEvent.actorRef === actor) {
+      console.log('Root actor event');
+    } else {
+      console.log('Child actor event');
+    }
+  }
+});
+
+actor.start();
+```
+
+## Stately Inspector
+
+For visual inspection, use `@statelyai/inspect`:
+
+```bash
+npm install @statelyai/inspect
+```
+
+```typescript
+import { createActor } from 'xstate';
+import { createBrowserInspector } from '@statelyai/inspect';
+
+const inspector = createBrowserInspector();
+
+const actor = createActor(machine, {
+  inspect: inspector.inspect
+});
+
+actor.start();
+```
+
+This opens a visual inspector in your browser showing:
+
+- State machine diagram
+- Current state
+- Event history
+- Context values
+- Actor hierarchy
+- Timeline of transitions
+
+<Note>
+The Stately Inspector connects to [https://stately.ai/inspect](https://stately.ai/inspect) by default. You can also run it locally.
+</Note>
+
+## Custom Inspection Tools
+
+Build custom inspection tools using the inspection API:
+
+```typescript
+class EventLogger {
+  private events: InspectionEvent[] = [];
+  
+  inspect = (event: InspectionEvent) => {
+    this.events.push(event);
+    
+    if (this.events.length > 100) {
+      this.events.shift(); // Keep last 100 events
+    }
+  };
+  
+  getEventHistory() {
+    return this.events;
+  }
+  
+  getSnapshotHistory() {
+    return this.events.filter(e => e.type === '@xstate.snapshot');
+  }
+  
+  getActorEvents(actorRef: any) {
+    return this.events.filter(e => e.actorRef === actorRef);
+  }
+}
+
+const logger = new EventLogger();
+
+const actor = createActor(machine, {
+  inspect: logger.inspect
+});
+
+actor.start();
+
+// Later...
+console.log('Event history:', logger.getEventHistory());
+```
+
+## Debugging with Inspection
+
+### Track State Transitions
+
+```typescript
+let previousState: any;
+
+const actor = createActor(machine, {
+  inspect: (event) => {
+    if (event.type === '@xstate.snapshot') {
+      console.log(`${previousState?.value} → ${event.snapshot.value}`);
+      previousState = event.snapshot;
+    }
+  }
+});
+```
+
+### Monitor Context Changes
+
+```typescript
+const actor = createActor(machine, {
+  inspect: (event) => {
+    if (event.type === '@xstate.snapshot') {
+      console.log('Context:', event.snapshot.context);
+    }
+  }
+});
+```
+
+### Track Event Sources
+
+```typescript
+const actor = createActor(machine, {
+  inspect: (event) => {
+    if (event.type === '@xstate.event') {
+      const source = event.sourceRef ? event.sourceRef.id : 'external';
+      console.log(`${source} → ${event.actorRef.id}: ${event.event.type}`);
+    }
+  }
+});
+```
+
+### Measure Performance
+
+```typescript
+const timings = new Map<string, number>();
+
+const actor = createActor(machine, {
+  inspect: (event) => {
+    if (event.type === '@xstate.event') {
+      timings.set(event.event.type, Date.now());
+    }
+    
+    if (event.type === '@xstate.snapshot') {
+      const eventType = event.event.type;
+      const startTime = timings.get(eventType);
+      
+      if (startTime) {
+        const duration = Date.now() - startTime;
+        console.log(`${eventType} took ${duration}ms`);
+        timings.delete(eventType);
+      }
+    }
+  }
+});
+```
+
+## Production Considerations
+
+<Warning>
+Inspection adds overhead. Disable it in production or use conditional inspection:
+
+```typescript
+const actor = createActor(machine, {
+  inspect: process.env.NODE_ENV === 'development' ? inspector : undefined
+});
+```
+</Warning>
+
+### Selective Inspection
+
+Inspect only specific actors:
+
+```typescript
+const shouldInspect = (actorRef: any) => {
+  return actorRef.id === 'critical-actor';
+};
+
+const actor = createActor(machine, {
+  inspect: (event) => {
+    if (shouldInspect(event.actorRef)) {
+      console.log(event);
+    }
+  }
+});
+```
+
+### Sampling
+
+Sample inspection events to reduce overhead:
+
+```typescript
+let sampleCount = 0;
+const SAMPLE_RATE = 10; // Inspect every 10th event
+
+const actor = createActor(machine, {
+  inspect: (event) => {
+    sampleCount++;
+    if (sampleCount % SAMPLE_RATE === 0) {
+      console.log(event);
+    }
+  }
+});
+```
+
+## Integration with Dev Tools
+
+### Redux DevTools
+
+Integrate with Redux DevTools:
+
+```typescript
+import { createActor } from 'xstate';
+
+const devTools = (window as any).__REDUX_DEVTOOLS_EXTENSION__?.connect();
+
+const actor = createActor(machine, {
+  inspect: (event) => {
+    if (event.type === '@xstate.snapshot') {
+      devTools?.send(
+        { type: event.event.type },
+        event.snapshot
+      );
+    }
+  }
+});
+```
+
+### Custom Loggers
+
+```typescript
+import * as Sentry from '@sentry/browser';
+
+const actor = createActor(machine, {
+  inspect: (event) => {
+    // Log errors to Sentry
+    if (
+      event.type === '@xstate.event' &&
+      event.event.type === 'ERROR'
+    ) {
+      Sentry.captureException(event.event);
+    }
+  }
+});
+```
+
+## Best Practices
+
+<Accordion title="Use inspection for debugging, not business logic">
+Inspection is for observability. Don't use it to drive application behavior.
+</Accordion>
+
+<Accordion title="Filter events early">
+Filter at the inspection level rather than processing all events.
+</Accordion>
+
+<Accordion title="Use structured logging">
+Log events in a structured format for easier analysis.
+</Accordion>
+
+<Accordion title="Consider privacy">
+Be careful not to log sensitive data in production environments.
+</Accordion>
+
+<Tip>
+Combine inspection with Stately Studio for the best debugging experience. Visual + data inspection is powerful.
+</Tip>

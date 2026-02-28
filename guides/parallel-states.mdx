@@ -1,0 +1,542 @@
+---
+title: Parallel States
+description: Model independent, concurrent state regions
+---
+
+Parallel states allow you to model multiple state regions that are active simultaneously and operate independently. This is perfect for representing orthogonal (independent) aspects of your application.
+
+## What are Parallel States?
+
+Parallel states enable a machine to be in multiple states at the same time. Each region operates independently with its own transitions and lifecycle.
+
+Common use cases include:
+- Text editor formatting (bold, italic, underline)
+- Media player (playback + volume + subtitles)
+- Form validation (multiple independent fields)
+- Multi-track audio/video editing
+
+<Note>
+When a parallel state is entered, **all** of its child states are entered simultaneously. When it exits, all child states exit together.
+</Note>
+
+## Creating Parallel States
+
+Set `type: 'parallel'` on a state to make all its child states active simultaneously:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const wordMachine = createMachine({
+  id: 'word',
+  type: 'parallel',
+  states: {
+    bold: {
+      initial: 'off',
+      states: {
+        on: {
+          on: { TOGGLE_BOLD: 'off' }
+        },
+        off: {
+          on: { TOGGLE_BOLD: 'on' }
+        }
+      }
+    },
+    underline: {
+      initial: 'off',
+      states: {
+        on: {
+          on: { TOGGLE_UNDERLINE: 'off' }
+        },
+        off: {
+          on: { TOGGLE_UNDERLINE: 'on' }
+        }
+      }
+    },
+    italics: {
+      initial: 'off',
+      states: {
+        on: {
+          on: { TOGGLE_ITALICS: 'off' }
+        },
+        off: {
+          on: { TOGGLE_ITALICS: 'on' }
+        }
+      }
+    },
+    list: {
+      initial: 'none',
+      states: {
+        none: {
+          on: {
+            BULLETS: 'bullets',
+            NUMBERS: 'numbers'
+          }
+        },
+        bullets: {
+          on: {
+            NONE: 'none',
+            NUMBERS: 'numbers'
+          }
+        },
+        numbers: {
+          on: {
+            BULLETS: 'bullets',
+            NONE: 'none'
+          }
+        }
+      }
+    }
+  }
+});
+
+const actor = createActor(wordMachine);
+actor.subscribe((state) => {
+  console.log(state.value);
+});
+
+actor.start();
+// logs: {
+//   bold: 'off',
+//   italics: 'off',
+//   underline: 'off',
+//   list: 'none'
+// }
+
+actor.send({ type: 'TOGGLE_BOLD' });
+// logs: {
+//   bold: 'on',
+//   italics: 'off',
+//   underline: 'off',
+//   list: 'none'
+// }
+
+actor.send({ type: 'TOGGLE_ITALICS' });
+// logs: {
+//   bold: 'on',
+//   italics: 'on',
+//   underline: 'off',
+//   list: 'none'
+// }
+```
+
+## State Values in Parallel States
+
+The state value of a parallel state is always an object with keys for each parallel region:
+
+```typescript
+import { createActor, createMachine } from 'xstate';
+
+const machine = createMachine({
+  type: 'parallel',
+  states: {
+    audio: {
+      initial: 'playing',
+      states: {
+        playing: { on: { PAUSE_AUDIO: 'paused' } },
+        paused: { on: { PLAY_AUDIO: 'playing' } }
+      }
+    },
+    video: {
+      initial: 'playing',
+      states: {
+        playing: { on: { PAUSE_VIDEO: 'paused' } },
+        paused: { on: { PLAY_VIDEO: 'playing' } }
+      }
+    }
+  }
+});
+
+const actor = createActor(machine).start();
+const state = actor.getSnapshot();
+
+console.log(state.value);
+// {
+//   audio: 'playing',
+//   video: 'playing'
+// }
+```
+
+## Media Player Example
+
+A real-world example showing independent control over different aspects:
+
+```typescript
+import { createMachine, assign } from 'xstate';
+
+const mediaPlayerMachine = createMachine({
+  type: 'parallel',
+  context: {
+    volume: 50,
+    subtitleSize: 'medium'
+  },
+  states: {
+    playback: {
+      initial: 'stopped',
+      states: {
+        stopped: {
+          on: { PLAY: 'playing' }
+        },
+        playing: {
+          on: {
+            PAUSE: 'paused',
+            STOP: 'stopped'
+          }
+        },
+        paused: {
+          on: {
+            PLAY: 'playing',
+            STOP: 'stopped'
+          }
+        }
+      }
+    },
+    volume: {
+      initial: 'normal',
+      states: {
+        muted: {
+          on: { UNMUTE: 'normal' }
+        },
+        normal: {
+          on: {
+            MUTE: 'muted',
+            VOLUME_UP: {
+              actions: assign({
+                volume: ({ context }) => Math.min(100, context.volume + 10)
+              })
+            },
+            VOLUME_DOWN: {
+              actions: assign({
+                volume: ({ context }) => Math.max(0, context.volume - 10)
+              })
+            }
+          }
+        }
+      }
+    },
+    subtitles: {
+      initial: 'hidden',
+      states: {
+        hidden: {
+          on: { SHOW_SUBTITLES: 'visible' }
+        },
+        visible: {
+          on: {
+            HIDE_SUBTITLES: 'hidden',
+            CHANGE_SIZE: {
+              actions: assign({
+                subtitleSize: ({ event }) => event.size
+              })
+            }
+          }
+        }
+      }
+    }
+  }
+});
+```
+
+## Checking Parallel States
+
+Use `state.matches()` with an object to check multiple parallel regions:
+
+```typescript
+import { createActor, createMachine } from 'xstate';
+
+const machine = createMachine({
+  type: 'parallel',
+  states: {
+    mode: {
+      initial: 'light',
+      states: {
+        light: { on: { TOGGLE_MODE: 'dark' } },
+        dark: { on: { TOGGLE_MODE: 'light' } }
+      }
+    },
+    connection: {
+      initial: 'offline',
+      states: {
+        offline: { on: { CONNECT: 'online' } },
+        online: { on: { DISCONNECT: 'offline' } }
+      }
+    }
+  }
+});
+
+const actor = createActor(machine).start();
+const state = actor.getSnapshot();
+
+// Check single region
+state.matches({ mode: 'light' }); // true
+
+// Check multiple regions
+state.matches({
+  mode: 'light',
+  connection: 'offline'
+}); // true
+
+// Partial match returns false
+state.matches({
+  mode: 'dark',
+  connection: 'offline'
+}); // false
+```
+
+## Nested Parallel States
+
+You can nest parallel states within other states:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  initial: 'app',
+  states: {
+    app: {
+      type: 'parallel',
+      states: {
+        ui: {
+          initial: 'idle',
+          states: {
+            idle: { on: { LOAD: 'loading' } },
+            loading: { on: { SUCCESS: 'idle' } }
+          }
+        },
+        auth: {
+          initial: 'loggedOut',
+          states: {
+            loggedOut: { on: { LOGIN: 'loggedIn' } },
+            loggedIn: { on: { LOGOUT: 'loggedOut' } }
+          }
+        },
+        notifications: {
+          initial: 'enabled',
+          states: {
+            enabled: { on: { DISABLE: 'disabled' } },
+            disabled: { on: { ENABLE: 'enabled' } }
+          }
+        }
+      },
+      on: {
+        EXIT: 'closed'
+      }
+    },
+    closed: {
+      type: 'final'
+    }
+  }
+});
+```
+
+## Parallel States vs Separate Machines
+
+When should you use parallel states vs separate machines?
+
+<Steps>
+
+### Use Parallel States When:
+
+- Regions share the same lifecycle (all start/stop together)
+- Regions need to coordinate or share context
+- You want a single state value representing all regions
+- State changes need to be atomic across regions
+
+### Use Separate Machines When:
+
+- Components have completely independent lifecycles
+- Each machine needs its own context
+- You want to spawn/stop actors dynamically
+- Machines need to communicate via events
+
+</Steps>
+
+## Entry and Exit Actions
+
+When entering a parallel state, all child states enter simultaneously:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  type: 'parallel',
+  states: {
+    a: {
+      initial: 'a1',
+      entry: () => console.log('Entering region A'),
+      exit: () => console.log('Exiting region A'),
+      states: {
+        a1: {
+          entry: () => console.log('Entering A1')
+        }
+      }
+    },
+    b: {
+      initial: 'b1',
+      entry: () => console.log('Entering region B'),
+      exit: () => console.log('Exiting region B'),
+      states: {
+        b1: {
+          entry: () => console.log('Entering B1')
+        }
+      }
+    }
+  }
+});
+
+const actor = createActor(machine);
+actor.start();
+// logs:
+// "Entering region A"
+// "Entering A1"
+// "Entering region B"
+// "Entering B1"
+```
+
+## Done Events in Parallel States
+
+A parallel state reaches its final state when **all** of its regions reach final states:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'parallel',
+  states: {
+    parallel: {
+      type: 'parallel',
+      states: {
+        task1: {
+          initial: 'running',
+          states: {
+            running: {
+              on: { TASK1_DONE: 'done' }
+            },
+            done: {
+              type: 'final'
+            }
+          }
+        },
+        task2: {
+          initial: 'running',
+          states: {
+            running: {
+              on: { TASK2_DONE: 'done' }
+            },
+            done: {
+              type: 'final'
+            }
+          }
+        }
+      },
+      onDone: 'complete'
+    },
+    complete: {
+      entry: () => console.log('All tasks complete!')
+    }
+  }
+});
+
+const actor = createActor(machine).start();
+
+actor.send({ type: 'TASK1_DONE' });
+// Still in parallel state
+
+actor.send({ type: 'TASK2_DONE' });
+// logs: "All tasks complete!"
+// Transitions to 'complete'
+```
+
+<Warning>
+All parallel regions must reach their final states for the parent parallel state to be considered "done". Missing a final state in any region means `onDone` will never trigger.
+</Warning>
+
+## Form Validation Example
+
+Parallel states are excellent for independent form field validations:
+
+```typescript
+import { createMachine, assign } from 'xstate';
+
+const formMachine = createMachine({
+  type: 'parallel',
+  context: {
+    email: '',
+    password: '',
+    emailError: null,
+    passwordError: null
+  },
+  states: {
+    email: {
+      initial: 'idle',
+      states: {
+        idle: {
+          on: {
+            CHANGE_EMAIL: {
+              actions: assign({ email: ({ event }) => event.value }),
+              target: 'validating'
+            }
+          }
+        },
+        validating: {
+          always: [
+            {
+              guard: ({ context }) => context.email.includes('@'),
+              target: 'valid'
+            },
+            { target: 'invalid' }
+          ]
+        },
+        valid: {
+          entry: assign({ emailError: null }),
+          on: { CHANGE_EMAIL: 'idle' }
+        },
+        invalid: {
+          entry: assign({ emailError: 'Invalid email format' }),
+          on: { CHANGE_EMAIL: 'idle' }
+        }
+      }
+    },
+    password: {
+      initial: 'idle',
+      states: {
+        idle: {
+          on: {
+            CHANGE_PASSWORD: {
+              actions: assign({ password: ({ event }) => event.value }),
+              target: 'validating'
+            }
+          }
+        },
+        validating: {
+          always: [
+            {
+              guard: ({ context }) => context.password.length >= 8,
+              target: 'valid'
+            },
+            { target: 'invalid' }
+          ]
+        },
+        valid: {
+          entry: assign({ passwordError: null }),
+          on: { CHANGE_PASSWORD: 'idle' }
+        },
+        invalid: {
+          entry: assign({ passwordError: 'Password must be at least 8 characters' }),
+          on: { CHANGE_PASSWORD: 'idle' }
+        }
+      }
+    }
+  }
+});
+```
+
+<Tip>
+Parallel states are perfect for modeling independent features that need to coexist. Think of them as multiple state machines running side-by-side within a single machine.
+</Tip>
+
+## Best Practices
+
+1. **Independent regions**: Ensure parallel regions are truly orthogonal
+2. **Shared context carefully**: Be cautious when multiple regions modify the same context
+3. **Clear naming**: Use descriptive names for parallel regions
+4. **Document dependencies**: If regions interact, document how
+5. **Consider alternatives**: Sometimes separate actors are clearer than parallel states

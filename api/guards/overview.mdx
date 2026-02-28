@@ -1,0 +1,172 @@
+---
+title: Guards Overview
+description: Conditional logic for state transitions in XState
+---
+
+Guards are predicate functions that determine whether a transition should be taken based on the current context and event. They return a boolean value: `true` to allow the transition, `false` to prevent it.
+
+## What are Guards?
+
+Guards enable conditional transitions in state machines. They receive the current context and event, and return `true` or `false` to control whether a transition should occur.
+
+```ts
+import { setup } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isAdult: ({ context }) => context.age >= 18
+  }
+}).createMachine({
+  context: { age: 0 },
+  on: {
+    SUBMIT: {
+      guard: 'isAdult',
+      target: 'approved'
+    }
+  }
+});
+```
+
+## Guard Types
+
+### Inline Guards
+
+Guards can be defined inline as functions:
+
+```ts
+const machine = createMachine({
+  on: {
+    SUBMIT: {
+      guard: ({ context }) => context.value > 0,
+      target: 'success'
+    }
+  }
+});
+```
+
+### Named Guards
+
+Guards can be referenced by name and implemented in `setup()`:
+
+```ts
+const machine = setup({
+  guards: {
+    isValid: ({ context, event }) => {
+      return context.count > event.threshold;
+    }
+  }
+}).createMachine({
+  on: {
+    CHECK: {
+      guard: 'isValid',
+      target: 'valid'
+    }
+  }
+});
+```
+
+### Guards with Parameters
+
+Guards can accept parameters for reusability:
+
+```ts
+const machine = setup({
+  guards: {
+    isGreaterThan: ({ context }, params: { value: number }) => {
+      return context.count > params.value;
+    }
+  }
+}).createMachine({
+  on: {
+    CHECK: {
+      guard: {
+        type: 'isGreaterThan',
+        params: { value: 10 }
+      },
+      target: 'valid'
+    }
+  }
+});
+```
+
+## Higher-Order Guards
+
+XState provides higher-order guards for composing guard logic:
+
+- [`and(...)`](/api/guards/and) - All guards must return `true`
+- [`or(...)`](/api/guards/or) - At least one guard must return `true`
+- [`not(...)`](/api/guards/not) - Inverts the guard result
+- [`stateIn(...)`](/api/guards/state-in) - Checks if machine is in a specific state
+
+```ts
+import { setup, and, or, not } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isValid: ({ context }) => context.isValid,
+    hasData: ({ context }) => context.data !== null
+  }
+}).createMachine({
+  on: {
+    SUBMIT: {
+      guard: and(['isValid', 'hasData']),
+      target: 'success'
+    },
+    RETRY: {
+      guard: or(['isValid', ({ context }) => context.retries < 3]),
+      target: 'retrying'
+    },
+    SKIP: {
+      guard: not('isValid'),
+      target: 'skipped'
+    }
+  }
+});
+```
+
+## GuardArgs Interface
+
+<ParamField path="context" type="TContext" required>
+  The current context of the machine.
+</ParamField>
+
+<ParamField path="event" type="TExpressionEvent" required>
+  The event that triggered the potential transition.
+</ParamField>
+
+## Type Signature
+
+```ts
+type GuardPredicate<
+  TContext extends MachineContext,
+  TExpressionEvent extends EventObject,
+  TParams extends ParameterizedObject['params'] | undefined,
+  TGuard extends ParameterizedObject
+> = (
+  args: GuardArgs<TContext, TExpressionEvent>,
+  params: TParams
+) => boolean;
+
+interface GuardArgs<
+  TContext extends MachineContext,
+  TExpressionEvent extends EventObject
+> {
+  context: TContext;
+  event: TExpressionEvent;
+}
+```
+
+## Best Practices
+
+1. **Keep guards pure**: Guards should not modify context or have side effects
+2. **Use descriptive names**: Name guards clearly to indicate what they check
+3. **Compose complex logic**: Use `and`, `or`, and `not` for readable compositions
+4. **Leverage parameters**: Make guards reusable with parameters
+5. **Test guards independently**: Guards are pure functions and easy to unit test
+
+## See Also
+
+- [and](/api/guards/and) - Combine multiple guards with AND logic
+- [or](/api/guards/or) - Combine multiple guards with OR logic
+- [not](/api/guards/not) - Invert a guard's result
+- [stateIn](/api/guards/state-in) - Check current state

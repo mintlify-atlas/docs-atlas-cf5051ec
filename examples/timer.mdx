@@ -1,0 +1,271 @@
+---
+title: Timer Example
+description: Build a countdown timer using callback actors and guards
+---
+
+This example shows how to create a countdown timer with start/stop controls using callback actors for continuous events.
+
+## Overview
+
+The timer machine demonstrates:
+- Using **callback actors** for continuous events
+- **Guards** to conditionally allow transitions
+- **Context** for storing elapsed time
+- Integration with React using `@xstate/react`
+
+## Machine Definition
+
+```typescript
+import { assign, fromCallback, setup } from 'xstate';
+
+export const timerMachine = setup({
+  actors: {
+    ticks: fromCallback(({ sendBack }) => {
+      const interval = setInterval(() => {
+        sendBack({ type: 'TICK' });
+      }, 1000);
+      return () => clearInterval(interval);
+    })
+  }
+}).createMachine({
+  types: {} as {
+    events:
+      | { type: 'start' }
+      | { type: 'stop' }
+      | { type: 'reset' }
+      | { type: 'minute' }
+      | { type: 'second' }
+      | { type: 'TICK' };
+  },
+  context: {
+    seconds: 0
+  },
+  initial: 'stopped',
+  states: {
+    stopped: {
+      on: {
+        start: {
+          guard: ({ context }) => context.seconds > 0,
+          target: 'running'
+        },
+        minute: {
+          actions: assign({
+            seconds: ({ context }) => context.seconds + 60
+          })
+        },
+        second: {
+          actions: assign({
+            seconds: ({ context }) => context.seconds + 1
+          })
+        }
+      }
+    },
+    running: {
+      invoke: {
+        src: 'ticks'
+      },
+      on: {
+        stop: 'stopped',
+        TICK: {
+          actions: assign({
+            seconds: ({ context }) => context.seconds - 1
+          })
+        }
+      },
+      always: {
+        guard: ({ context }) => context.seconds === 0,
+        target: 'stopped'
+      }
+    }
+  },
+  on: {
+    reset: {
+      guard: ({ context }) => context.seconds > 0,
+      actions: assign({
+        seconds: 0
+      })
+    }
+  }
+});
+```
+
+## Implementation
+
+<Steps>
+
+### Create a callback actor
+
+Define an actor that sends events continuously:
+
+```typescript
+actors: {
+  ticks: fromCallback(({ sendBack }) => {
+    const interval = setInterval(() => {
+      sendBack({ type: 'TICK' });
+    }, 1000);
+    return () => clearInterval(interval);
+  })
+}
+```
+
+The cleanup function is called when the actor is stopped.
+
+### Add guards for validation
+
+Use guards to conditionally allow transitions:
+
+```typescript
+start: {
+  guard: ({ context }) => context.seconds > 0,
+  target: 'running'
+}
+```
+
+### Use `always` for automatic transitions
+
+Transition automatically when a condition is met:
+
+```typescript
+always: {
+  guard: ({ context }) => context.seconds === 0,
+  target: 'stopped'
+}
+```
+
+### Invoke the actor when running
+
+```typescript
+running: {
+  invoke: {
+    src: 'ticks'
+  },
+  on: {
+    TICK: {
+      actions: assign({
+        seconds: ({ context }) => context.seconds - 1
+      })
+    }
+  }
+}
+```
+
+</Steps>
+
+## React Integration
+
+```typescript
+import { useMachine } from '@xstate/react';
+import { timerMachine } from './timerMachine';
+
+function convertSecondsToTime(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const secondsLeft = seconds % 60;
+  return { minutes, seconds: secondsLeft };
+}
+
+function padTime(minsOrSecs: number) {
+  return minsOrSecs < 10 ? `0${minsOrSecs}` : minsOrSecs;
+}
+
+function App() {
+  const [state, send] = useMachine(timerMachine);
+  const { minutes, seconds } = convertSecondsToTime(state.context.seconds);
+  const can = state.can.bind(state);
+
+  return (
+    <div className="App">
+      <h1>
+        {padTime(minutes)}:{padTime(seconds)}
+      </h1>
+      <button
+        onClick={() => send({ type: 'minute' })}
+        disabled={!can({ type: 'minute' })}
+      >
+        min
+      </button>
+      <button
+        onClick={() => send({ type: 'second' })}
+        disabled={!can({ type: 'second' })}
+      >
+        sec
+      </button>
+      <button
+        onClick={() => send({ type: 'reset' })}
+        disabled={!can({ type: 'reset' })}
+      >
+        reset
+      </button>
+      <button
+        onClick={() => send({ type: 'start' })}
+        disabled={!can({ type: 'start' })}
+      >
+        start
+      </button>
+      <button
+        onClick={() => send({ type: 'stop' })}
+        disabled={!can({ type: 'stop' })}
+      >
+        stop
+      </button>
+    </div>
+  );
+}
+```
+
+## Key Concepts
+
+- **fromCallback()**: Creates actors that send events over time
+- **Cleanup functions**: Return a function to clean up resources
+- **Guards**: Conditionally enable transitions based on context or event data
+- **always**: Automatic transitions checked after every state change
+- **state.can()**: Check if an event is allowed in the current state
+- **Global transitions**: Use `on` at the root level for events accepted in any state
+
+## Advanced Features
+
+### Add pause functionality
+
+```typescript
+states: {
+  running: {
+    on: {
+      pause: 'paused'
+    }
+  },
+  paused: {
+    on: {
+      start: 'running'
+    }
+  }
+}
+```
+
+### Add completion notification
+
+```typescript
+running: {
+  always: {
+    guard: ({ context }) => context.seconds === 0,
+    target: 'completed'
+  }
+},
+completed: {
+  entry: () => {
+    // Play sound or show notification
+    new Audio('/timer-complete.mp3').play();
+  },
+  on: {
+    reset: 'stopped'
+  }
+}
+```
+
+## Use Cases
+
+This pattern is perfect for:
+- Countdown timers
+- Stopwatches
+- Pomodoro timers
+- Animation timing
+- Polling intervals
+- Real-time updates

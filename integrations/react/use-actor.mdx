@@ -1,0 +1,389 @@
+---
+title: useActor
+description: Create and subscribe to an actor from logic in React components
+---
+
+The `useActor` hook creates an actor from logic (such as a machine) and subscribes to its state changes. It automatically starts the actor when the component mounts and stops it when the component unmounts.
+
+## Type Signature
+
+```typescript
+function useActor<TLogic extends AnyActorLogic>(
+  logic: TLogic,
+  options?: ActorOptions<TLogic>
+): [SnapshotFrom<TLogic>, Actor<TLogic>['send'], Actor<TLogic>]
+```
+
+## Parameters
+
+- **`logic`** - The actor logic (machine, promise, callback, etc.) to create an actor from
+- **`options`** *(optional)* - Actor options including:
+  - `input` - Input data for the actor
+  - `systemId` - System ID for the actor
+  - `snapshot` - Initial snapshot for rehydration
+  - `inspect` - Inspector for debugging
+
+## Return Value
+
+Returns a tuple with three values:
+
+1. **`snapshot`** - The current snapshot of the actor
+2. **`send`** - Function to send events to the actor
+3. **`actorRef`** - The actor reference for advanced usage
+
+## Basic Usage
+
+### Simple State Machine
+
+```tsx
+import { useActor } from '@xstate/react';
+import { createMachine } from 'xstate';
+
+const toggleMachine = createMachine({
+  id: 'toggle',
+  initial: 'inactive',
+  states: {
+    inactive: {
+      on: { TOGGLE: 'active' }
+    },
+    active: {
+      on: { TOGGLE: 'inactive' }
+    }
+  }
+});
+
+function Toggle() {
+  const [state, send] = useActor(toggleMachine);
+
+  return (
+    <button onClick={() => send({ type: 'TOGGLE' })}
+      Status: {state.value}
+    </button>
+  );
+}
+```
+
+### With Context
+
+```tsx
+import { useActor } from '@xstate/react';
+import { createMachine, assign } from 'xstate';
+
+const counterMachine = createMachine({
+  context: { count: 0 },
+  on: {
+    INCREMENT: {
+      actions: assign({
+        count: ({ context }) => context.count + 1
+      })
+    },
+    DECREMENT: {
+      actions: assign({
+        count: ({ context }) => context.count - 1
+      })
+    }
+  }
+});
+
+function Counter() {
+  const [state, send] = useActor(counterMachine);
+
+  return (
+    <div>
+      <p>Count: {state.context.count}</p>
+      <button onClick={() => send({ type: 'INCREMENT' })}>+</button>
+      <button onClick={() => send({ type: 'DECREMENT' })}>-</button>
+    </div>
+  );
+}
+```
+
+## Advanced Usage
+
+### With Input
+
+```tsx
+import { useActor } from '@xstate/react';
+import { createMachine } from 'xstate';
+
+const timerMachine = createMachine({
+  types: {} as {
+    input: { duration: number };
+    context: { duration: number; elapsed: number };
+  },
+  context: ({ input }) => ({
+    duration: input.duration,
+    elapsed: 0
+  }),
+  initial: 'running',
+  states: {
+    running: {
+      after: {
+        1000: {
+          actions: assign({
+            elapsed: ({ context }) => context.elapsed + 1
+          }),
+          target: 'running',
+          guard: ({ context }) => context.elapsed < context.duration
+        }
+      }
+    }
+  }
+});
+
+function Timer({ duration }: { duration: number }) {
+  const [state] = useActor(timerMachine, {
+    input: { duration }
+  });
+
+  return (
+    <div>
+      {state.context.elapsed} / {state.context.duration} seconds
+    </div>
+  );
+}
+```
+
+### Using Actor Ref
+
+```tsx
+import { useActor } from '@xstate/react';
+import { createMachine } from 'xstate';
+
+const parentMachine = createMachine({
+  context: { childRef: null },
+  initial: 'active',
+  states: {
+    active: {}
+  }
+});
+
+function Parent() {
+  const [state, send, actorRef] = useActor(parentMachine);
+
+  // Use actorRef for advanced operations
+  const handleSnapshot = () => {
+    const snapshot = actorRef.getSnapshot();
+    console.log('Current snapshot:', snapshot);
+  };
+
+  const handleSubscribe = () => {
+    const subscription = actorRef.subscribe((snapshot) => {
+      console.log('State changed:', snapshot.value);
+    });
+    
+    return () => subscription.unsubscribe();
+  };
+
+  return (
+    <div>
+      <button onClick={handleSnapshot}>Get Snapshot</button>
+      <p>State: {JSON.stringify(state.value)}</p>
+    </div>
+  );
+}
+```
+
+### With Invoked Actors
+
+```tsx
+import { useActor } from '@xstate/react';
+import { createMachine, fromPromise } from 'xstate';
+
+const fetchUser = fromPromise(async ({ input }: { input: { id: string } }) => {
+  const response = await fetch(`/api/users/${input.id}`);
+  return response.json();
+});
+
+const userMachine = createMachine({
+  types: {} as {
+    input: { userId: string };
+    context: { user: any; error: any };
+  },
+  context: { user: null, error: null },
+  initial: 'loading',
+  states: {
+    loading: {
+      invoke: {
+        src: fetchUser,
+        input: ({ context }) => ({ id: context.userId }),
+        onDone: {
+          target: 'success',
+          actions: assign({
+            user: ({ event }) => event.output
+          })
+        },
+        onError: {
+          target: 'failure',
+          actions: assign({
+            error: ({ event }) => event.error
+          })
+        }
+      }
+    },
+    success: {
+      on: {
+        RELOAD: 'loading'
+      }
+    },
+    failure: {
+      on: {
+        RETRY: 'loading'
+      }
+    }
+  }
+});
+
+function UserProfile({ userId }: { userId: string }) {
+  const [state, send] = useActor(userMachine, {
+    input: { userId }
+  });
+
+  if (state.matches('loading')) {
+    return <div>Loading user...</div>;
+  }
+
+  if (state.matches('failure')) {
+    return (
+      <div>
+        <p>Error: {state.context.error.message}</p>
+        <button onClick={() => send({ type: 'RETRY' })}>Retry</button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h1>{state.context.user.name}</h1>
+      <p>{state.context.user.email}</p>
+      <button onClick={() => send({ type: 'RELOAD' })}>Reload</button>
+    </div>
+  );
+}
+```
+
+## Different Actor Types
+
+### Promise Actor
+
+```tsx
+import { useActor } from '@xstate/react';
+import { fromPromise } from 'xstate';
+
+const fetchData = fromPromise(async () => {
+  const response = await fetch('/api/data');
+  return response.json();
+});
+
+function DataLoader() {
+  const [state] = useActor(fetchData);
+
+  if (state.status === 'active') {
+    return <div>Loading...</div>;
+  }
+
+  if (state.status === 'done') {
+    return <div>Data: {JSON.stringify(state.output)}</div>;
+  }
+
+  if (state.status === 'error') {
+    return <div>Error: {state.error.message}</div>;
+  }
+
+  return null;
+}
+```
+
+### Callback Actor
+
+```tsx
+import { useActor } from '@xstate/react';
+import { fromCallback } from 'xstate';
+
+const ticker = fromCallback(({ sendBack }) => {
+  const interval = setInterval(() => {
+    sendBack({ type: 'TICK', timestamp: Date.now() });
+  }, 1000);
+
+  return () => clearInterval(interval);
+});
+
+function Clock() {
+  const [state] = useActor(ticker);
+
+  return (
+    <div>
+      Current time: {new Date().toLocaleTimeString()}
+    </div>
+  );
+}
+```
+
+## Error Handling
+
+The hook automatically throws errors when the actor's snapshot status is 'error':
+
+```tsx
+import { useActor } from '@xstate/react';
+import { createMachine } from 'xstate';
+import { ErrorBoundary } from 'react-error-boundary';
+
+const faultyMachine = createMachine({
+  initial: 'active',
+  states: {
+    active: {
+      invoke: {
+        src: fromPromise(async () => {
+          throw new Error('Something went wrong');
+        }),
+        onError: {
+          actions: ({ event }) => {
+            // Error is automatically thrown by useActor
+            console.error(event.error);
+          }
+        }
+      }
+    }
+  }
+});
+
+function FaultyComponent() {
+  const [state] = useActor(faultyMachine);
+  return <div>{state.value}</div>;
+}
+
+function App() {
+  return (
+    <ErrorBoundary fallback={<div>Error occurred</div>}>
+      <FaultyComponent />
+    </ErrorBoundary>
+  );
+}
+```
+
+## Important Notes
+
+- The actor is automatically started when the component mounts
+- The actor is automatically stopped when the component unmounts
+- Do not pass an actor ref to `useActor` - use `useSelector` instead
+- The hook uses `useSyncExternalStore` internally for optimal React 18 compatibility
+- State changes trigger component re-renders
+
+## Performance Considerations
+
+If you only need specific parts of the state, consider using [`useSelector`](/integrations/react/use-selector) to avoid unnecessary re-renders:
+
+```tsx
+// Re-renders on every state change
+const [state] = useActor(machine);
+
+// Only re-renders when count changes
+const actorRef = useActorRef(machine);
+const count = useSelector(actorRef, (state) => state.context.count);
+```
+
+## See Also
+
+- [useActorRef](/integrations/react/use-actor-ref) - Create an actor without subscribing
+- [useSelector](/integrations/react/use-selector) - Subscribe to derived state
+- [createActorContext](/integrations/react/create-actor-context) - Share actors via context

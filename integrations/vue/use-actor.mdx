@@ -1,0 +1,302 @@
+---
+title: 'useActor'
+description: 'Create and manage XState actors in Vue components'
+icon: 'play'
+---
+
+## Overview
+
+The `useActor` composition function creates an actor from XState logic and manages its lifecycle within a Vue component.
+
+```typescript
+function useActor<TLogic extends AnyActorLogic>(
+  logic: TLogic,
+  options?: ActorOptions<TLogic>
+): {
+  snapshot: Ref<SnapshotFrom<TLogic>>;
+  send: Actor<TLogic>['send'];
+  actorRef: Actor<TLogic>;
+}
+```
+
+## Basic Usage
+
+<CodeGroup>
+
+```vue State Machine
+<script setup>
+import { useActor } from '@xstate/vue';
+import { createMachine } from 'xstate';
+
+const toggleMachine = createMachine({
+  id: 'toggle',
+  initial: 'inactive',
+  states: {
+    inactive: {
+      on: { TOGGLE: 'active' }
+    },
+    active: {
+      on: { TOGGLE: 'inactive' }
+    }
+  }
+});
+
+const { snapshot, send } = useActor(toggleMachine);
+</script>
+
+<template>
+  <div>
+    <p>State: {{ snapshot.value }}</p>
+    <button @click="send({ type: 'TOGGLE' })">Toggle</button>
+  </div>
+</template>
+```
+
+```vue Promise Logic
+<script setup>
+import { useActor } from '@xstate/vue';
+import { fromPromise } from 'xstate';
+
+const fetchUser = fromPromise(async () => {
+  const response = await fetch('/api/user');
+  return response.json();
+});
+
+const { snapshot } = useActor(fetchUser);
+</script>
+
+<template>
+  <div>
+    <div v-if="snapshot.status === 'active'">Loading...</div>
+    <div v-else-if="snapshot.status === 'done'">
+      User: {{ snapshot.output.name }}
+    </div>
+    <div v-else-if="snapshot.status === 'error'">
+      Error: {{ snapshot.error.message }}
+    </div>
+  </div>
+</template>
+```
+
+```vue Transition Logic
+<script setup>
+import { useActor } from '@xstate/vue';
+import { fromTransition } from 'xstate';
+
+const counterLogic = fromTransition(
+  (state, event) => {
+    if (event.type === 'INCREMENT') {
+      return { count: state.count + 1 };
+    }
+    if (event.type === 'DECREMENT') {
+      return { count: state.count - 1 };
+    }
+    return state;
+  },
+  { count: 0 }
+);
+
+const { snapshot, send } = useActor(counterLogic);
+</script>
+
+<template>
+  <div>
+    <p>Count: {{ snapshot.context.count }}</p>
+    <button @click="send({ type: 'INCREMENT' })">+</button>
+    <button @click="send({ type: 'DECREMENT' })">-</button>
+  </div>
+</template>
+```
+
+</CodeGroup>
+
+## With Options
+
+Pass options to configure the actor:
+
+```vue
+<script setup>
+import { useActor } from '@xstate/vue';
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  context: ({ input }) => ({
+    userId: input.userId,
+    data: null
+  }),
+  // ...
+});
+
+const { snapshot, send } = useActor(machine, {
+  input: { userId: '123' },
+  inspect: (event) => {
+    console.log('Inspector:', event);
+  }
+});
+</script>
+```
+
+## Accessing the Actor Ref
+
+The `actorRef` allows direct interaction with the underlying actor:
+
+```vue
+<script setup>
+import { useActor } from '@xstate/vue';
+import { onMounted, onUnmounted } from 'vue';
+import { myMachine } from './myMachine';
+
+const { snapshot, send, actorRef } = useActor(myMachine);
+
+// Subscribe to state changes
+let subscription;
+onMounted(() => {
+  subscription = actorRef.subscribe((state) => {
+    console.log('State changed:', state);
+  });
+});
+
+onUnmounted(() => {
+  subscription?.unsubscribe();
+});
+
+// Get current snapshot at any time
+const currentState = actorRef.getSnapshot();
+</script>
+```
+
+## Reactive Snapshot
+
+The `snapshot` ref automatically updates when the actor's state changes:
+
+```vue
+<script setup>
+import { useActor } from '@xstate/vue';
+import { computed } from 'vue';
+import { fetchMachine } from './fetchMachine';
+
+const { snapshot, send } = useActor(fetchMachine);
+
+// Computed properties based on snapshot
+const isLoading = computed(() => snapshot.value.matches('loading'));
+const data = computed(() => snapshot.value.context.data);
+const hasError = computed(() => snapshot.value.matches('error'));
+</script>
+
+<template>
+  <div>
+    <div v-if="isLoading">Loading...</div>
+    <div v-else-if="hasError">Error occurred</div>
+    <div v-else>{{ data }}</div>
+  </div>
+</template>
+```
+
+## useMachine Alias
+
+The `useMachine` function is an alias for `useActor` with the same API:
+
+```vue
+<script setup>
+import { useMachine } from '@xstate/vue';
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  // ...
+});
+
+// useMachine and useActor are identical
+const { snapshot, send, actorRef } = useMachine(machine);
+</script>
+```
+
+## Lifecycle Management
+
+The actor lifecycle is automatically managed:
+
+1. **Component Mount** (`onMounted`)
+   - Observer/listener subscriptions are created (if provided)
+   - Actor is started via `actorRef.start()`
+
+2. **Component Unmount** (`onBeforeUnmount`)
+   - Actor is stopped via `actorRef.stop()`
+   - Subscriptions are cleaned up
+
+```vue
+<script setup>
+import { useActor } from '@xstate/vue';
+import { myMachine } from './myMachine';
+
+// Actor automatically starts on mount
+const { snapshot, send } = useActor(myMachine);
+
+// Actor automatically stops on unmount
+</script>
+```
+
+## Error Handling
+
+<Warning>
+The `useActor` hook expects actor logic, not an existing actor ref. If you pass an actor ref, it will throw an error in development:
+</Warning>
+
+```vue
+<script setup>
+import { useActor } from '@xstate/vue';
+import { createActor, createMachine } from 'xstate';
+
+const machine = createMachine({/* ... */});
+const actorRef = createActor(machine);
+
+// ❌ This will throw an error
+const { snapshot } = useActor(actorRef);
+
+// ✅ Use useSelector instead for existing actors
+import { useSelector } from '@xstate/vue';
+const snapshot = useSelector(actorRef, (s) => s);
+</script>
+```
+
+## TypeScript
+
+The hook is fully typed:
+
+```typescript
+import { setup } from 'xstate';
+import { useActor } from '@xstate/vue';
+
+const machine = setup({
+  types: {
+    context: {} as { count: number; name: string },
+    events: {} as 
+      | { type: 'INCREMENT' }
+      | { type: 'DECREMENT' }
+      | { type: 'SET_NAME'; name: string }
+  }
+}).createMachine({
+  context: { count: 0, name: '' },
+  // ...
+});
+
+const { snapshot, send, actorRef } = useActor(machine);
+
+// All types are inferred
+snapshot.value.context.count; // number
+snapshot.value.context.name; // string
+
+// TypeScript validates events
+send({ type: 'INCREMENT' }); // ✅
+send({ type: 'SET_NAME', name: 'Alice' }); // ✅
+send({ type: 'INVALID' }); // ❌ TypeScript error
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="useActorRef" icon="link" href="/integrations/vue/overview#useactorref">
+    Get actor ref without reactive snapshot
+  </Card>
+  <Card title="useSelector" icon="filter" href="/integrations/vue/use-selector">
+    Select derived values from snapshots
+  </Card>
+</CardGroup>

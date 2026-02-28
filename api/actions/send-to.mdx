@@ -1,0 +1,236 @@
+---
+title: sendTo
+description: API reference for the sendTo action
+---
+
+Sends an event to an actor.
+
+```ts
+import { sendTo } from 'xstate';
+```
+
+## Signature
+
+```ts
+function sendTo<
+  TContext extends MachineContext,
+  TExpressionEvent extends EventObject,
+  TParams extends ParameterizedObject['params'] | undefined,
+  TTargetActor extends AnyActorRef,
+  TEvent extends EventObject,
+  TDelay extends string = never,
+  TUsedDelay extends TDelay = never
+>(
+  to: SendToActionTarget<TContext, TExpressionEvent, TParams, TTargetActor, TEvent>,
+  eventOrExpr:
+    | EventFrom<TTargetActor>
+    | SendExpr<TContext, TExpressionEvent, TParams, InferEvent<Cast<EventFrom<TTargetActor>, EventObject>>, TEvent>,
+  options?: SendToActionOptions<TContext, TExpressionEvent, TParams, DoNotInfer<TEvent>, TUsedDelay>
+): ActionFunction
+```
+
+## Parameters
+
+<ParamField path="to" type="string | ActorRef | SendExpr" required>
+  The target actor to send the event to. Can be:
+  - String: the ID of a child actor
+  - `ActorRef`: direct reference to an actor
+  - Function: expression that receives `ActionArgs` and returns an actor ref or ID
+  
+  Special values:
+  - `SpecialTargets.Parent` - sends to the parent actor
+  - `SpecialTargets.Internal` - sends to the current actor
+</ParamField>
+
+<ParamField path="eventOrExpr" type="EventObject | SendExpr" required>
+  The event to send. Can be either:
+  - An event object that matches the target actor's event types
+  - A function that receives `ActionArgs` and returns an event object
+  
+  <Warning>
+    Only event objects may be used with `sendTo`. Use `sendTo(actor, { type: "EVENT_NAME" })` instead of `sendTo(actor, "EVENT_NAME")`.
+  </Warning>
+</ParamField>
+
+<ParamField path="options" type="SendToActionOptions">
+  Optional configuration object:
+  
+  <Expandable title="properties">
+    <ParamField path="id" type="string">
+      The unique send event identifier. Used with `cancel()` to cancel delayed sends.
+    </ParamField>
+    
+    <ParamField path="delay" type="string | number | DelayExpr">
+      The number of milliseconds to delay the sending of the event:
+      - Number: milliseconds to delay
+      - String: reference to a delay defined in `delays` implementation
+      - Function: expression that receives `ActionArgs` and returns delay in milliseconds
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Returns
+
+<ResponseField name="ActionFunction" type="ActionFunction">
+  An action function that sends the event to the target actor when executed.
+</ResponseField>
+
+## Examples
+
+### Send to child actor
+
+```ts
+import { createMachine, sendTo } from 'xstate';
+
+const parentMachine = createMachine({
+  types: {} as {
+    context: { childRef: ActorRefFrom<typeof childMachine> };
+  },
+  context: ({ spawn }) => ({
+    childRef: spawn(childMachine, { id: 'child' })
+  }),
+  on: {
+    PING_CHILD: {
+      actions: sendTo('child', { type: 'PING' })
+    }
+  }
+});
+```
+
+### Send to actor ref
+
+```ts
+const machine = createMachine({
+  types: {} as {
+    context: { actorRef: AnyActorRef };
+  },
+  context: {
+    actorRef: null
+  },
+  on: {
+    NOTIFY: {
+      actions: sendTo(
+        ({ context }) => context.actorRef,
+        { type: 'NOTIFICATION' }
+      )
+    }
+  }
+});
+```
+
+### Dynamic event
+
+```ts
+const machine = createMachine({
+  on: {
+    FORWARD: {
+      actions: sendTo(
+        'childActor',
+        ({ event }) => ({
+          type: 'MESSAGE',
+          data: event.data
+        })
+      )
+    }
+  }
+});
+```
+
+### Delayed send
+
+```ts
+const machine = createMachine({
+  on: {
+    SCHEDULE: {
+      actions: sendTo(
+        'timer',
+        { type: 'TICK' },
+        {
+          delay: 1000,
+          id: 'tick'
+        }
+      )
+    },
+    CANCEL_SCHEDULE: {
+      actions: cancel('tick')
+    }
+  }
+});
+```
+
+## Related Functions
+
+### sendParent
+
+Sends an event to this machine's parent.
+
+```ts
+function sendParent<
+  TContext extends MachineContext,
+  TExpressionEvent extends EventObject,
+  TParams extends ParameterizedObject['params'] | undefined,
+  TSentEvent extends EventObject = AnyEventObject,
+  TEvent extends EventObject = AnyEventObject,
+  TDelay extends string = never,
+  TUsedDelay extends TDelay = never
+>(
+  event:
+    | TSentEvent
+    | SendExpr<TContext, TExpressionEvent, TParams, TSentEvent, TEvent>,
+  options?: SendToActionOptions<TContext, TExpressionEvent, TParams, TEvent, TUsedDelay>
+)
+```
+
+#### Example
+
+```ts
+import { createMachine, sendParent } from 'xstate';
+
+const childMachine = createMachine({
+  on: {
+    DONE: {
+      actions: sendParent({ type: 'CHILD_DONE' })
+    }
+  }
+});
+```
+
+### forwardTo
+
+Forwards the current event to the target actor.
+
+```ts
+function forwardTo<
+  TContext extends MachineContext,
+  TExpressionEvent extends EventObject,
+  TParams extends ParameterizedObject['params'] | undefined,
+  TEvent extends EventObject,
+  TDelay extends string = never,
+  TUsedDelay extends TDelay = never
+>(
+  target: SendToActionTarget<TContext, TExpressionEvent, TParams, AnyActorRef, TEvent>,
+  options?: SendToActionOptions<TContext, TExpressionEvent, TParams, TEvent, TUsedDelay>
+)
+```
+
+#### Example
+
+```ts
+import { createMachine, forwardTo } from 'xstate';
+
+const machine = createMachine({
+  on: {
+    '*': {
+      actions: forwardTo('logger')
+    }
+  }
+});
+```
+
+<Warning>
+  Custom actions should not call `sendTo()` directly, as it is not imperative. Use it only in machine configurations.
+</Warning>
+
+<Note>
+  If the target actor cannot be found, `sendTo` will throw an error indicating the actor ID and machine ID.
+</Note>

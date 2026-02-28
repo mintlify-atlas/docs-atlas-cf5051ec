@@ -1,0 +1,128 @@
+---
+title: State machines
+description: Learn about finite state machines and statecharts in XState
+---
+
+## What are state machines?
+
+A finite state machine is a mathematical model of computation that describes the behavior of a system that can be in exactly one of a finite number of states at any given time. The machine can change from one state to another in response to events; this change is called a transition.
+
+## Why use state machines?
+
+Statecharts are a formalism for modeling stateful, reactive systems. This is useful for declaratively describing the behavior of your application, from individual components to overall application logic.
+
+<Note>
+XState is based on the [SCXML specification](https://www.w3.org/TR/scxml/), which is a W3C standard for representing state machines in XML.
+</Note>
+
+## Basic state machine
+
+Here's a simple traffic light state machine:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const lightMachine = createMachine({
+  id: 'light',
+  initial: 'green',
+  states: {
+    green: {
+      on: {
+        TIMER: 'yellow'
+      }
+    },
+    yellow: {
+      on: {
+        TIMER: 'red'
+      }
+    },
+    red: {
+      on: {
+        TIMER: 'green'
+      }
+    }
+  }
+});
+
+const actor = createActor(lightMachine);
+
+actor.subscribe((state) => {
+  console.log(state.value);
+});
+
+actor.start();
+// logs 'green'
+
+actor.send({ type: 'TIMER' });
+// logs 'yellow'
+```
+
+## Key concepts
+
+### States
+
+States represent the different modes or conditions your system can be in. In the traffic light example, the states are `green`, `yellow`, and `red`.
+
+### Events
+
+Events trigger transitions between states. Events are objects with a `type` property. In the example above, the `TIMER` event triggers transitions.
+
+### Transitions
+
+Transitions define how the machine moves from one state to another in response to events. They are defined in the `on` property of each state.
+
+### Initial state
+
+The initial state is the state the machine starts in. It's defined with the `initial` property.
+
+## Statecharts vs state machines
+
+Statecharts extend traditional finite state machines with:
+
+- **Hierarchical states** - States can contain other states
+- **Parallel states** - Multiple states can be active simultaneously
+- **History states** - Remember and restore previous states
+- **Guards** - Conditional transitions
+- **Actions** - Side effects on transitions
+
+XState implements the full statechart specification, making it much more powerful than basic state machines.
+
+## Benefits
+
+<CardGroup cols={2}>
+  <Card title="Predictable behavior" icon="check-circle">
+    State machines eliminate impossible states and ensure valid transitions
+  </Card>
+  <Card title="Visual representation" icon="diagram-project">
+    State machines can be visualized, making complex logic easier to understand
+  </Card>
+  <Card title="Type-safe" icon="shield-check">
+    TypeScript integration provides compile-time type safety for states and events
+  </Card>
+  <Card title="Testable" icon="flask">
+    State machines are easy to test - verify all possible states and transitions
+  </Card>
+</CardGroup>
+
+## Learn more
+
+- [Statecharts - A Visual Formalism for Complex Systems](https://www.sciencedirect.com/science/article/pii/0167642387900359/pdf) by David Harel
+- [The World of Statecharts](https://statecharts.github.io/) by Erik Mogensen
+- [Watch: Infinitely better UIs with finite automata](https://www.youtube.com/watch?v=VU1NKX6Qkxc)
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Actors" icon="users" href="/concepts/actors">
+    Learn about the actor model in XState
+  </Card>
+  <Card title="States" icon="circle" href="/concepts/states">
+    Deep dive into states and state values
+  </Card>
+  <Card title="Transitions" icon="arrow-right" href="/concepts/transitions">
+    Understand state transitions
+  </Card>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Build your first state machine
+  </Card>
+</CardGroup>

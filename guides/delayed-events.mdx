@@ -1,0 +1,523 @@
+---
+title: Delayed Events and Transitions
+description: Schedule events and create time-based transitions
+---
+
+XState allows you to schedule events to be sent after a delay, enabling time-based behavior in your state machines. This is useful for timeouts, automatic transitions, debouncing, and more.
+
+## Delayed Transitions with after
+
+The `after` property creates transitions that are automatically taken after a specified delay:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: { START: 'running' }
+    },
+    running: {
+      // Automatically transition after 3 seconds
+      after: {
+        3000: 'timeout'
+      },
+      on: {
+        CANCEL: 'idle'
+      }
+    },
+    timeout: {
+      entry: () => console.log('Timed out!')
+    }
+  }
+});
+
+const actor = createActor(machine).start();
+actor.send({ type: 'START' });
+// After 3 seconds, automatically transitions to 'timeout'
+```
+
+## Multiple Delayed Transitions
+
+You can define multiple delayed transitions with different delays:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const toasterMachine = createMachine({
+  initial: 'toasting',
+  states: {
+    toasting: {
+      after: {
+        1000: {
+          target: 'lightly',
+          actions: () => console.log('Lightly toasted')
+        },
+        2000: {
+          target: 'medium',
+          actions: () => console.log('Medium toast')
+        },
+        3000: {
+          target: 'dark',
+          actions: () => console.log('Dark toast')
+        }
+      },
+      on: {
+        // User can stop at any time
+        STOP: 'done'
+      }
+    },
+    lightly: {},
+    medium: {},
+    dark: {},
+    done: {}
+  }
+});
+
+// First matching delay (shortest) wins
+```
+
+<Note>
+Delayed transitions are checked in order. The first delay that has elapsed will trigger its transition.
+</Note>
+
+## Named Delays
+
+For reusability and configurability, define named delays:
+
+```typescript
+import { setup } from 'xstate';
+
+const machine = setup({
+  delays: {
+    SHORT_DELAY: 1000,
+    LONG_DELAY: 5000,
+    DYNAMIC_DELAY: ({ context }) => context.timeout
+  }
+}).createMachine({
+  initial: 'waiting',
+  context: { timeout: 3000 },
+  states: {
+    waiting: {
+      after: {
+        SHORT_DELAY: 'quick',
+        LONG_DELAY: 'slow',
+        DYNAMIC_DELAY: 'custom'
+      }
+    },
+    quick: {},
+    slow: {},
+    custom: {}
+  }
+});
+```
+
+## Dynamic Delays
+
+Delays can be computed dynamically based on context and events:
+
+```typescript
+import { setup, createActor } from 'xstate';
+
+const retryMachine = setup({
+  delays: {
+    RETRY_DELAY: ({ context }) => {
+      // Exponential backoff
+      return Math.min(1000 * Math.pow(2, context.retries), 10000);
+    }
+  }
+}).createMachine({
+  initial: 'idle',
+  context: {
+    retries: 0
+  },
+  states: {
+    idle: {
+      on: { FETCH: 'loading' }
+    },
+    loading: {
+      on: {
+        SUCCESS: 'success',
+        ERROR: 'error'
+      }
+    },
+    error: {
+      entry: assign({
+        retries: ({ context }) => context.retries + 1
+      }),
+      after: {
+        RETRY_DELAY: {
+          target: 'loading',
+          guard: ({ context }) => context.retries < 5
+        }
+      },
+      on: {
+        GIVE_UP: 'failure'
+      }
+    },
+    success: { type: 'final' },
+    failure: { type: 'final' }
+  }
+});
+```
+
+## Delayed raise
+
+Raise internal events after a delay:
+
+```typescript
+import { createMachine, raise } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      entry: raise(
+        { type: 'DELAYED_EVENT' },
+        { delay: 1000 }
+      )
+    },
+    processing: {
+      on: {
+        DELAYED_EVENT: {
+          actions: () => console.log('Delayed event received!')
+        }
+      }
+    }
+  }
+});
+```
+
+## Delayed sendTo
+
+Send events to actors after a delay:
+
+```typescript
+import { createMachine, sendTo, createActor } from 'xstate';
+
+const parentMachine = createMachine({
+  initial: 'active',
+  states: {
+    active: {
+      entry: sendTo(
+        'childActor',
+        { type: 'DELAYED_MESSAGE' },
+        {
+          delay: 2000,
+          id: 'delayed-send'
+        }
+      )
+    }
+  }
+});
+```
+
+## Canceling Delayed Events
+
+Use the `cancel` action to cancel a delayed event by its ID:
+
+```typescript
+import { createMachine, sendTo, cancel } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: { START: 'running' }
+    },
+    running: {
+      entry: sendTo(
+        'someActor',
+        { type: 'TIMEOUT' },
+        {
+          id: 'timeout-event',
+          delay: 5000
+        }
+      ),
+      on: {
+        CANCEL: {
+          target: 'idle',
+          actions: cancel('timeout-event')
+        }
+      }
+    }
+  }
+});
+```
+
+<Steps>
+
+### How Cancellation Works
+
+1. Entry action schedules a delayed event with an ID
+2. User sends a CANCEL event
+3. `cancel` action removes the scheduled event
+4. Delayed event never fires
+
+</Steps>
+
+## Guarded Delayed Transitions
+
+Delayed transitions can have guards:
+
+```typescript
+import { setup } from 'xstate';
+
+const machine = setup({
+  guards: {
+    shouldTimeout: ({ context }) => context.enableTimeout
+  }
+}).createMachine({
+  initial: 'active',
+  context: { enableTimeout: true },
+  states: {
+    active: {
+      after: {
+        3000: {
+          target: 'timedOut',
+          guard: 'shouldTimeout'
+        }
+      },
+      on: { DISABLE_TIMEOUT: {
+        actions: assign({ enableTimeout: false })
+      }}
+    },
+    timedOut: {}
+  }
+});
+```
+
+## Debouncing with Delays
+
+Implement debouncing by resetting a delayed transition:
+
+```typescript
+import { createMachine, assign, createActor } from 'xstate';
+
+const searchMachine = createMachine({
+  initial: 'idle',
+  context: {
+    query: ''
+  },
+  states: {
+    idle: {
+      on: {
+        TYPE: {
+          target: 'debouncing',
+          actions: assign({
+            query: ({ event }) => event.value
+          })
+        }
+      }
+    },
+    debouncing: {
+      on: {
+        TYPE: {
+          target: 'debouncing', // Reset the timer
+          reenter: true,
+          actions: assign({
+            query: ({ event }) => event.value
+          })
+        }
+      },
+      after: {
+        300: 'searching' // Search after 300ms of no typing
+      }
+    },
+    searching: {
+      entry: ({ context }) => {
+        console.log('Searching for:', context.query);
+      },
+      on: {
+        TYPE: 'debouncing',
+        COMPLETE: 'idle'
+      }
+    }
+  }
+});
+
+const actor = createActor(searchMachine).start();
+
+// Rapid typing
+actor.send({ type: 'TYPE', value: 'h' });
+actor.send({ type: 'TYPE', value: 'he' });
+actor.send({ type: 'TYPE', value: 'hel' });
+actor.send({ type: 'TYPE', value: 'hell' });
+actor.send({ type: 'TYPE', value: 'hello' });
+// Search only happens once, 300ms after last keystroke
+```
+
+## Timeout Pattern
+
+Implement a timeout that can be reset:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const timeoutMachine = createMachine({
+  initial: 'active',
+  states: {
+    active: {
+      after: {
+        10000: 'timedOut'
+      },
+      on: {
+        ACTIVITY: {
+          target: 'active',
+          reenter: true // Reset the timer
+        },
+        COMPLETE: 'done'
+      }
+    },
+    timedOut: {
+      entry: () => console.log('Session timed out'),
+      on: {
+        RETRY: 'active'
+      }
+    },
+    done: {
+      type: 'final'
+    }
+  }
+});
+
+const actor = createActor(timeoutMachine).start();
+
+// Keep session alive with activity
+setInterval(() => {
+  if (userIsActive()) {
+    actor.send({ type: 'ACTIVITY' });
+  }
+}, 5000);
+```
+
+## Polling Pattern
+
+Use delayed transitions for polling:
+
+```typescript
+import { createMachine, assign } from 'xstate';
+
+const pollingMachine = createMachine({
+  initial: 'polling',
+  context: {
+    data: null,
+    pollCount: 0
+  },
+  states: {
+    polling: {
+      entry: assign({
+        pollCount: ({ context }) => context.pollCount + 1
+      }),
+      invoke: {
+        src: 'fetchData',
+        onDone: {
+          target: 'polling',
+          actions: assign({
+            data: ({ event }) => event.output
+          })
+        },
+        onError: 'error'
+      },
+      after: {
+        5000: 'polling' // Poll every 5 seconds
+      },
+      on: {
+        STOP: 'idle'
+      }
+    },
+    error: {
+      after: {
+        10000: 'polling' // Retry after 10 seconds
+      }
+    },
+    idle: {
+      on: { START: 'polling' }
+    }
+  }
+});
+```
+
+<Warning>
+Delayed transitions are automatically canceled when exiting a state. If you transition to another state before the delay elapses, the delayed transition will not occur.
+</Warning>
+
+## Traffic Light with Timers
+
+A practical example using multiple delayed transitions:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const trafficLightMachine = createMachine({
+  initial: 'green',
+  states: {
+    green: {
+      entry: () => console.log('🟢 Green light'),
+      after: {
+        5000: 'yellow'
+      }
+    },
+    yellow: {
+      entry: () => console.log('🟡 Yellow light'),
+      after: {
+        2000: 'red'
+      }
+    },
+    red: {
+      entry: () => console.log('🔴 Red light'),
+      after: {
+        5000: 'green'
+      }
+    }
+  }
+});
+
+const actor = createActor(trafficLightMachine).start();
+// Cycles automatically: Green (5s) -> Yellow (2s) -> Red (5s) -> repeat
+```
+
+## Testing Delayed Transitions
+
+Use a simulated clock for testing:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+import { SimulatedClock } from 'xstate';
+
+const machine = createMachine({
+  initial: 'waiting',
+  states: {
+    waiting: {
+      after: {
+        1000: 'done'
+      }
+    },
+    done: {}
+  }
+});
+
+// Test
+const clock = new SimulatedClock();
+const actor = createActor(machine, { clock }).start();
+
+expect(actor.getSnapshot().value).toBe('waiting');
+
+clock.increment(1000);
+
+expect(actor.getSnapshot().value).toBe('done');
+```
+
+<Tip>
+Use delayed transitions for automatic state changes, timeouts, polling, debouncing, and any time-based behavior. They're more reliable than manual setTimeout calls because they're managed by the state machine.
+</Tip>
+
+## Best Practices
+
+1. **Name your delays**: Use named delays instead of magic numbers
+2. **Make delays configurable**: Use functions for dynamic delays
+3. **Cancel when appropriate**: Cancel delayed events when leaving a state
+4. **Test with simulated clock**: Use SimulatedClock for deterministic tests
+5. **Guard delayed transitions**: Add guards to control when delayed transitions occur
+6. **Use reenter for debouncing**: Reset timers by re-entering the same state

@@ -1,0 +1,305 @@
+---
+title: State Utilities
+description: Internal utilities for working with state nodes and transitions
+---
+
+The `stateUtils` module contains a collection of internal utility functions used by XState for managing state nodes, transitions, and state values. These utilities are primarily used internally by the XState library.
+
+## State Node Utilities
+
+### getStateNodes
+
+Returns the state nodes represented by the current state value.
+
+```typescript
+function getStateNodes(
+  stateNode: AnyStateNode,
+  stateValue: StateValue
+): Array<AnyStateNode>
+```
+
+<ParamField path="stateNode" type="AnyStateNode" required>
+  The parent state node to search within.
+</ParamField>
+
+<ParamField path="stateValue" type="StateValue" required>
+  The state value (string or object) representing the current state.
+</ParamField>
+
+<ParamField path="returns" type="Array<AnyStateNode>">
+  An array of state nodes that correspond to the given state value.
+</ParamField>
+
+### getStateNodeByPath
+
+Returns the relative state node from the given `statePath`, or throws an error if not found.
+
+```typescript
+function getStateNodeByPath(
+  stateNode: AnyStateNode,
+  statePath: string | string[]
+): AnyStateNode
+```
+
+<ParamField path="stateNode" type="AnyStateNode" required>
+  The starting state node.
+</ParamField>
+
+<ParamField path="statePath" type="string | string[]" required>
+  The string or string array relative path to the target state node. Can use state IDs (strings starting with `#`).
+</ParamField>
+
+<ParamField path="returns" type="AnyStateNode">
+  The state node at the specified path.
+</ParamField>
+
+### getStateValue
+
+Computes the state value from a root node and a collection of state nodes.
+
+```typescript
+function getStateValue(
+  rootNode: AnyStateNode,
+  stateNodes: Iterable<AnyStateNode>
+): StateValue
+```
+
+<ParamField path="rootNode" type="AnyStateNode" required>
+  The root state node of the machine.
+</ParamField>
+
+<ParamField path="stateNodes" type="Iterable<AnyStateNode>" required>
+  The collection of active state nodes.
+</ParamField>
+
+<ParamField path="returns" type="StateValue">
+  The computed state value (string for atomic states, object for compound/parallel states).
+</ParamField>
+
+### resolveStateValue
+
+Resolves a partial state value with its full representation in the state node's machine.
+
+```typescript
+function resolveStateValue(
+  rootNode: AnyStateNode,
+  stateValue: StateValue
+): StateValue
+```
+
+<ParamField path="rootNode" type="AnyStateNode" required>
+  The root state node of the machine.
+</ParamField>
+
+<ParamField path="stateValue" type="StateValue" required>
+  The partial state value to resolve.
+</ParamField>
+
+<ParamField path="returns" type="StateValue">
+  The fully resolved state value.
+</ParamField>
+
+## Transition Utilities
+
+### formatTransition
+
+Formats a transition config into a complete transition definition.
+
+```typescript
+function formatTransition(
+  stateNode: AnyStateNode,
+  descriptor: string,
+  transitionConfig: AnyTransitionConfig
+): AnyTransitionDefinition
+```
+
+<ParamField path="stateNode" type="AnyStateNode" required>
+  The source state node.
+</ParamField>
+
+<ParamField path="descriptor" type="string" required>
+  The event descriptor for this transition.
+</ParamField>
+
+<ParamField path="transitionConfig" type="AnyTransitionConfig" required>
+  The raw transition configuration.
+</ParamField>
+
+<ParamField path="returns" type="AnyTransitionDefinition">
+  A fully formatted transition definition with resolved targets and guards.
+</ParamField>
+
+### transitionNode
+
+Determines the enabled transitions for a state node given a state value and event.
+
+```typescript
+function transitionNode<TContext extends MachineContext, TEvent extends EventObject>(
+  stateNode: AnyStateNode,
+  stateValue: StateValue,
+  snapshot: MachineSnapshot<TContext, TEvent, ...>,
+  event: TEvent
+): Array<TransitionDefinition<TContext, TEvent>> | undefined
+```
+
+<ParamField path="stateNode" type="AnyStateNode" required>
+  The state node to get transitions from.
+</ParamField>
+
+<ParamField path="stateValue" type="StateValue" required>
+  The current state value.
+</ParamField>
+
+<ParamField path="snapshot" type="MachineSnapshot" required>
+  The current machine snapshot.
+</ParamField>
+
+<ParamField path="event" type="EventObject" required>
+  The event that may trigger transitions.
+</ParamField>
+
+<ParamField path="returns" type="Array<TransitionDefinition> | undefined">
+  An array of enabled transitions, or undefined if no transitions are enabled.
+</ParamField>
+
+### getCandidates
+
+Returns candidate transitions for a given event type on a state node.
+
+```typescript
+function getCandidates<TEvent extends EventObject>(
+  stateNode: StateNode<any, TEvent>,
+  receivedEventType: TEvent['type']
+): Array<TransitionDefinition<any, TEvent>>
+```
+
+<ParamField path="stateNode" type="StateNode" required>
+  The state node to get candidates from.
+</ParamField>
+
+<ParamField path="receivedEventType" type="string" required>
+  The type of the received event.
+</ParamField>
+
+<ParamField path="returns" type="Array<TransitionDefinition>">
+  An array of candidate transitions that match the event type.
+</ParamField>
+
+## State Checking Utilities
+
+### isInFinalState
+
+Checks if a state node is in a final state.
+
+```typescript
+function isInFinalState(
+  stateNodeSet: Set<AnyStateNode>,
+  stateNode: AnyStateNode
+): boolean
+```
+
+<ParamField path="stateNodeSet" type="Set<AnyStateNode>" required>
+  The set of currently active state nodes.
+</ParamField>
+
+<ParamField path="stateNode" type="AnyStateNode" required>
+  The state node to check.
+</ParamField>
+
+<ParamField path="returns" type="boolean">
+  `true` if the state node is in a final state:
+  - For compound states: if a direct child final state is active
+  - For parallel states: if all child regions are in final states
+  - For atomic states: if the state itself is a final state
+</ParamField>
+
+### isAtomicStateNode
+
+Checks if a state node is atomic (has no child states).
+
+```typescript
+function isAtomicStateNode(stateNode: StateNode<any, any>): boolean
+```
+
+<ParamField path="stateNode" type="StateNode" required>
+  The state node to check.
+</ParamField>
+
+<ParamField path="returns" type="boolean">
+  `true` if the state node type is `'atomic'` or `'final'`.
+</ParamField>
+
+### getProperAncestors
+
+Returns all proper ancestors of a state node up to (but not including) a target ancestor.
+
+```typescript
+function getProperAncestors(
+  stateNode: AnyStateNode,
+  toStateNode: AnyStateNode | undefined
+): Array<AnyStateNode>
+```
+
+<ParamField path="stateNode" type="AnyStateNode" required>
+  The starting state node.
+</ParamField>
+
+<ParamField path="toStateNode" type="AnyStateNode | undefined" required>
+  The ancestor to stop at (not included in results). If `undefined`, returns all ancestors.
+</ParamField>
+
+<ParamField path="returns" type="Array<AnyStateNode>">
+  An array of ancestor state nodes, from immediate parent to the generation before `toStateNode`.
+</ParamField>
+
+## Transition Processing
+
+### macrostep
+
+Performs a macrostep, which processes an event and executes all resulting microsteps until a stable state is reached.
+
+```typescript
+function macrostep(
+  snapshot: AnyMachineSnapshot,
+  event: EventObject,
+  actorScope: AnyActorScope,
+  internalQueue: AnyEventObject[]
+): {
+  snapshot: AnyMachineSnapshot;
+  microsteps: Microstep[];
+}
+```
+
+<ParamField path="snapshot" type="AnyMachineSnapshot" required>
+  The current machine snapshot.
+</ParamField>
+
+<ParamField path="event" type="EventObject" required>
+  The event to process.
+</ParamField>
+
+<ParamField path="actorScope" type="AnyActorScope" required>
+  The actor scope containing execution context.
+</ParamField>
+
+<ParamField path="internalQueue" type="AnyEventObject[]" required>
+  Queue for internally raised events.
+</ParamField>
+
+<ParamField path="returns" type="{ snapshot: AnyMachineSnapshot; microsteps: Microstep[] }">
+  An object containing the resulting snapshot and an array of microsteps that were executed.
+</ParamField>
+
+## Notes
+
+<Warning>
+  These utilities are primarily intended for internal use by XState. The APIs may change between minor versions. Use the public XState APIs when possible.
+</Warning>
+
+<Note>
+  Many of these utilities are used during state machine initialization and transition processing. They implement core algorithms from the SCXML specification.
+</Note>
+
+<Tip>
+  If you need to work with state nodes or analyze machine structure, consider using the public inspection APIs like `machine.transition()` or the `@xstate/inspect` package.
+</Tip>

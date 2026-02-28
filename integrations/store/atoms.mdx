@@ -1,0 +1,493 @@
+---
+title: Atoms
+description: Fine-grained reactive primitives for computed values and async state
+---
+
+Atoms are lightweight, reactive primitives that hold a single value and notify subscribers when that value changes. They're perfect for derived state, computed values, and managing async operations.
+
+## What are Atoms?
+
+Atoms provide fine-grained reactivity similar to signals in Solid.js or atoms in Jotai:
+
+- **Reactive primitives** - Hold a single value that can be read and subscribed to
+- **Computed values** - Derive values from other atoms or stores
+- **Lazy evaluation** - Computed atoms only recalculate when dependencies change
+- **Async support** - Handle promises with `createAsyncAtom()`
+- **Type-safe** - Full TypeScript inference
+
+## Creating Atoms
+
+### Basic Atom
+
+Create a simple atom with an initial value:
+
+```typescript
+import { createAtom } from '@xstate/store';
+
+const countAtom = createAtom(0);
+
+// Get current value
+console.log(countAtom.get()); // 0
+
+// Set new value
+countAtom.set(5);
+console.log(countAtom.get()); // 5
+
+// Update based on previous value
+countAtom.set((prev) => prev + 1);
+console.log(countAtom.get()); // 6
+```
+
+### Type Signature
+
+```typescript
+// Basic atom (writable)
+function createAtom<T>(
+  initialValue: T,
+  options?: AtomOptions<T>
+): Atom<T>
+
+// Computed atom (read-only)
+function createAtom<T>(
+  getValue: (read: <U>(atom: Readable<U>) => U, prev?: T) => T,
+  options?: AtomOptions<T>
+): ReadonlyAtom<T>
+
+interface Atom<T> extends BaseAtom<T> {
+  get(): T;
+  set(value: T): void;
+  set(fn: (prev: T) => T): void;
+  subscribe(observer: Observer<T> | ((value: T) => void)): Subscription;
+}
+
+interface ReadonlyAtom<T> extends BaseAtom<T> {
+  get(): T;
+  subscribe(observer: Observer<T> | ((value: T) => void)): Subscription;
+}
+
+interface AtomOptions<T> {
+  compare?: (prev: T, next: T) => boolean;
+}
+```
+
+## Computed Atoms
+
+Computed atoms derive their value from other atoms or stores:
+
+```typescript
+import { createAtom, createStore } from '@xstate/store';
+
+const store = createStore({
+  context: { firstName: 'John', lastName: 'Doe' }
+  on: {
+    updateFirstName: (ctx, event: { name: string }) => ({
+      ...ctx,
+      firstName: event.name
+    }),
+    updateLastName: (ctx, event: { name: string }) => ({
+      ...ctx,
+      lastName: event.name
+    })
+  }
+});
+
+// Computed atom that derives from store
+const fullNameAtom = createAtom((read) => {
+  const snapshot = read(store);
+  return `${snapshot.context.firstName} ${snapshot.context.lastName}`;
+});
+
+console.log(fullNameAtom.get()); // 'John Doe'
+
+store.trigger.updateFirstName({ name: 'Jane' });
+console.log(fullNameAtom.get()); // 'Jane Doe'
+```
+
+### Reading Other Atoms
+
+The `read` function allows accessing other atoms:
+
+```typescript
+const priceAtom = createAtom(100);
+const quantityAtom = createAtom(3);
+const taxRateAtom = createAtom(0.08);
+
+const totalAtom = createAtom((read) => {
+  const price = read(priceAtom);
+  const quantity = read(quantityAtom);
+  const taxRate = read(taxRateAtom);
+
+  const subtotal = price * quantity;
+  const tax = subtotal * taxRate;
+  return subtotal + tax;
+});
+
+console.log(totalAtom.get()); // 324 (100 * 3 * 1.08)
+
+priceAtom.set(150);
+console.log(totalAtom.get()); // 486 (150 * 3 * 1.08)
+```
+
+### Accessing Previous Value
+
+Computed atoms receive the previous computed value as a second parameter:
+
+```typescript
+const clicksAtom = createAtom(0);
+
+// Track click rate changes
+const clickRateAtom = createAtom((read, prev) => {
+  const clicks = read(clicksAtom);
+
+  if (!prev) {
+    return { clicks, delta: 0, timestamp: Date.now() };
+  }
+
+  const now = Date.now();
+  const delta = clicks - prev.clicks;
+  const timeDiff = now - prev.timestamp;
+
+  return {
+    clicks,
+    delta,
+    timestamp: now,
+    rate: (delta / timeDiff) * 1000 // clicks per second
+  };
+});
+```
+
+## Custom Equality
+
+By default, atoms use `Object.is()` to determine if a value changed. Provide a custom comparison function:
+
+```typescript
+import { shallowEqual } from '@xstate/store';
+
+const userAtom = createAtom(
+  { id: 1, name: 'Alice', settings: { theme: 'dark' } },
+  {
+    compare: shallowEqual
+  }
+);
+
+// Only triggers updates if top-level properties change
+userAtom.set({ ...userAtom.get() }); // No update (shallow equal)
+userAtom.set({ ...userAtom.get(), name: 'Bob' }); // Updates
+```
+
+### Deep Equality Example
+
+```typescript
+import { createAtom } from '@xstate/store';
+
+function deepEqual(a: any, b: any): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+const configAtom = createAtom(
+  { nested: { deeply: { value: 42 } } },
+  { compare: deepEqual }
+);
+```
+
+<Note>
+  Custom equality functions are checked on every `set()` call. Keep them fast to avoid performance issues.
+</Note>
+
+## Async Atoms
+
+Handle asynchronous operations with `createAsyncAtom()`:
+
+### Type Signature
+
+```typescript
+type AsyncAtomState<Data, Error = unknown> =
+  | { status: 'pending' }
+  | { status: 'done'; data: Data }
+  | { status: 'error'; error: Error };
+
+function createAsyncAtom<T>(
+  getValue: () => Promise<T>,
+  options?: AtomOptions<AsyncAtomState<T>>
+): ReadonlyAtom<AsyncAtomState<T>>
+```
+
+### Basic Example
+
+```typescript
+import { createAsyncAtom } from '@xstate/store';
+
+const userAtom = createAsyncAtom(async () => {
+  const response = await fetch('/api/user');
+  return response.json();
+});
+
+// Initial state
+console.log(userAtom.get());
+// { status: 'pending' }
+
+// Subscribe to updates
+userAtom.subscribe((state) => {
+  if (state.status === 'done') {
+    console.log('User loaded:', state.data);
+  } else if (state.status === 'error') {
+    console.error('Failed to load user:', state.error);
+  }
+});
+```
+
+### Handling States
+
+```typescript
+const dataAtom = createAsyncAtom(async () => {
+  const data = await fetchData();
+  return data;
+});
+
+function renderData() {
+  const state = dataAtom.get();
+
+  switch (state.status) {
+    case 'pending':
+      return 'Loading...';
+    case 'done':
+      return `Data: ${state.data}`;
+    case 'error':
+      return `Error: ${state.error}`;
+  }
+}
+```
+
+## Subscribing to Atoms
+
+Atoms are subscribable, just like stores:
+
+```typescript
+const atom = createAtom(0);
+
+// Subscribe with a function
+const subscription = atom.subscribe((value) => {
+  console.log('Value changed:', value);
+});
+
+atom.set(1); // Logs: Value changed: 1
+atom.set(2); // Logs: Value changed: 2
+
+subscription.unsubscribe();
+
+atom.set(3); // Not logged
+```
+
+### Observer Pattern
+
+```typescript
+const subscription = atom.subscribe({
+  next: (value) => console.log('Next:', value),
+  error: (err) => console.error('Error:', err),
+  complete: () => console.log('Complete')
+});
+```
+
+## Atoms with Stores
+
+Stores expose a `select()` method that returns atoms for derived values:
+
+```typescript
+const store = createStore({
+  context: {
+    user: { name: 'Alice', age: 30 },
+    settings: { theme: 'dark', notifications: true }
+  },
+  on: {
+    updateName: (ctx, event: { name: string }) => ({
+      ...ctx,
+      user: { ...ctx.user, name: event.name }
+    })
+  }
+});
+
+// Create a selection atom
+const nameAtom = store.select((snapshot) => snapshot.context.user.name);
+
+console.log(nameAtom.get()); // 'Alice'
+
+store.trigger.updateName({ name: 'Bob' });
+console.log(nameAtom.get()); // 'Bob'
+
+// Subscribe to only name changes
+nameAtom.subscribe((name) => {
+  console.log('Name changed:', name);
+});
+
+store.trigger.updateTheme({ theme: 'light' }); // No log (name didn't change)
+```
+
+### Custom Equality with Select
+
+```typescript
+import { shallowEqual } from '@xstate/store';
+
+const userAtom = store.select(
+  (snapshot) => snapshot.context.user,
+  shallowEqual
+);
+
+// Only updates if user object properties change
+```
+
+See [store:187-193] for the `select()` implementation.
+
+## Using Atoms in Frameworks
+
+### React
+
+```typescript
+import { useSelector } from '@xstate/store/react';
+import { createAtom } from '@xstate/store';
+
+const countAtom = createAtom(0);
+
+function Counter() {
+  const count = useSelector(countAtom);
+
+  return (
+    <div>
+      <p>Count: {count}</p>
+      <button onClick={() => countAtom.set((c) => c + 1)}>
+        Increment
+      </button>
+    </div>
+  );
+}
+```
+
+### Solid
+
+```typescript
+import { useSelector } from '@xstate/store/solid';
+import { createAtom } from '@xstate/store';
+
+const countAtom = createAtom(0);
+
+function Counter() {
+  const count = useSelector(countAtom, (state) => state);
+
+  return (
+    <div>
+      <p>Count: {count()}</p>
+      <button onClick={() => countAtom.set((c) => c + 1)}>
+        Increment
+      </button>
+    </div>
+  );
+}
+```
+
+See [Framework Bindings](/docs/integrations/store/framework-bindings) for more details.
+
+## Patterns and Best Practices
+
+### Composition
+
+Compose multiple atoms for complex derived state:
+
+```typescript
+const cartItemsAtom = createAtom([]);
+const shippingFeeAtom = createAtom(10);
+const discountCodeAtom = createAtom(null);
+
+const subtotalAtom = createAtom((read) => {
+  const items = read(cartItemsAtom);
+  return items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+});
+
+const discountAtom = createAtom((read) => {
+  const code = read(discountCodeAtom);
+  const subtotal = read(subtotalAtom);
+
+  if (code === 'SAVE20') return subtotal * 0.2;
+  return 0;
+});
+
+const totalAtom = createAtom((read) => {
+  const subtotal = read(subtotalAtom);
+  const shipping = read(shippingFeeAtom);
+  const discount = read(discountAtom);
+
+  return subtotal + shipping - discount;
+});
+```
+
+### Memoization
+
+Computed atoms automatically memoize and only recompute when dependencies change:
+
+```typescript
+const expensiveComputationAtom = createAtom((read) => {
+  const data = read(dataAtom);
+
+  // This only runs when dataAtom changes
+  return data.map((item) => {
+    return performExpensiveOperation(item);
+  });
+});
+```
+
+### Lazy Evaluation
+
+Computed atoms are lazy - they don't compute until accessed:
+
+```typescript
+const lazyAtom = createAtom((read) => {
+  console.log('Computing...');
+  return read(sourceAtom) * 2;
+});
+
+// No log yet
+
+lazyAtom.get();
+// Logs: Computing...
+
+lazyAtom.get();
+// No log (cached)
+
+sourceAtom.set(5);
+lazyAtom.get();
+// Logs: Computing... (recomputed)
+```
+
+## Atom vs Store Selection
+
+| Feature | Atom | Store Selection |
+|---------|------|----------------|
+| **Purpose** | Independent reactive value | Derived value from store |
+| **Creation** | `createAtom()` | `store.select()` |
+| **Writable** | Yes (for basic atoms) | No |
+| **Dependencies** | Explicit via `read()` | Store context |
+| **Use case** | Standalone state/computed | Selecting from store |
+
+```typescript
+// Atom - independent
+const countAtom = createAtom(0);
+countAtom.set(5);
+
+// Store selection - derived from store
+const store = createStore({ context: { count: 0 }, on: { ... } });
+const countSelection = store.select((s) => s.context.count);
+// countSelection.set() doesn't exist - it's read-only
+```
+
+<Tip>
+  Use atoms for independent reactive primitives and computed values. Use store selections for deriving values from store context.
+</Tip>
+
+## Next Steps
+
+<Cards>
+  <Card title="Framework Bindings" href="/docs/integrations/store/framework-bindings">
+    Use atoms and stores in React, Solid, and Vue
+  </Card>
+  <Card title="Create Store" href="/docs/integrations/store/create-store">
+    Learn more about stores and selections
+  </Card>
+</Cards>

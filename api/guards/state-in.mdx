@@ -1,0 +1,371 @@
+---
+title: stateIn()
+description: Guard that checks if the machine is in a specific state
+---
+
+The `stateIn()` function creates a guard that evaluates to `true` if the machine is currently in the specified state value.
+
+## Signature
+
+```ts
+function stateIn<
+  TContext extends MachineContext,
+  TExpressionEvent extends EventObject,
+  TParams extends ParameterizedObject['params'] | undefined
+>(
+  stateValue: StateValue
+): GuardPredicate<TContext, TExpressionEvent, TParams, any>;
+```
+
+## Parameters
+
+<ParamField path="stateValue" type="StateValue" required>
+  The state value to check. Can be:
+  - A string for simple states (e.g., `'idle'`)
+  - A state ID string (e.g., `'#myState'`)
+  - An object for nested states (e.g., `{ loading: 'data' }`)
+</ParamField>
+
+## Returns
+
+A guard that returns `true` if the machine matches the specified state value, otherwise `false`.
+
+## Usage
+
+### Simple State Check
+
+```ts
+import { setup, stateIn } from 'xstate';
+
+const machine = setup({}).createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        START: 'loading'
+      }
+    },
+    loading: {
+      on: {
+        CANCEL: {
+          guard: stateIn('loading'),
+          target: 'idle'
+        }
+      }
+    }
+  }
+});
+```
+
+### Nested State Check
+
+```ts
+import { setup, stateIn } from 'xstate';
+
+const machine = setup({}).createMachine({
+  initial: 'form',
+  states: {
+    form: {
+      initial: 'editing',
+      states: {
+        editing: {},
+        validating: {},
+        submitting: {}
+      },
+      on: {
+        RESET: {
+          guard: stateIn({ form: 'editing' }),
+          actions: 'clearForm'
+        }
+      }
+    }
+  }
+});
+```
+
+### Using State IDs
+
+```ts
+import { setup, stateIn } from 'xstate';
+
+const machine = setup({}).createMachine({
+  initial: 'auth',
+  states: {
+    auth: {
+      initial: 'loggedOut',
+      states: {
+        loggedOut: {
+          id: 'loggedOut'
+        },
+        loggedIn: {
+          id: 'loggedIn'
+        }
+      }
+    },
+    dashboard: {
+      on: {
+        LOGOUT: {
+          guard: stateIn('#loggedIn'),
+          target: '#loggedOut'
+        }
+      }
+    }
+  }
+});
+```
+
+### Conditional Actions
+
+```ts
+import { setup, stateIn } from 'xstate';
+
+const machine = setup({
+  actions: {
+    saveProgress: () => console.log('Saving...'),
+    notifyUser: () => console.log('Notification sent')
+  }
+}).createMachine({
+  initial: 'draft',
+  states: {
+    draft: {},
+    published: {},
+    archived: {}
+  },
+  on: {
+    SAVE: {
+      guard: stateIn('draft'),
+      actions: 'saveProgress'
+    },
+    NOTIFY: {
+      guard: stateIn('published'),
+      actions: 'notifyUser'
+    }
+  }
+});
+```
+
+### Parallel States
+
+```ts
+import { setup, stateIn } from 'xstate';
+
+const machine = setup({}).createMachine({
+  type: 'parallel',
+  states: {
+    upload: {
+      initial: 'idle',
+      states: {
+        idle: {},
+        uploading: {},
+        complete: {}
+      }
+    },
+    validation: {
+      initial: 'pending',
+      states: {
+        pending: {},
+        valid: {},
+        invalid: {}
+      }
+    }
+  },
+  on: {
+    SUBMIT: {
+      guard: stateIn({ upload: 'complete', validation: 'valid' }),
+      actions: 'submitForm'
+    }
+  }
+});
+```
+
+### Combining with Other Guards
+
+```ts
+import { setup, stateIn, and } from 'xstate';
+
+const machine = setup({
+  guards: {
+    hasValidData: ({ context }) => context.data !== null
+  }
+}).createMachine({
+  initial: 'idle',
+  context: { data: null as string | null },
+  states: {
+    idle: {},
+    ready: {},
+    processing: {}
+  },
+  on: {
+    PROCESS: {
+      guard: and([
+        stateIn('ready'),
+        'hasValidData'
+      ]),
+      target: 'processing'
+    }
+  }
+});
+```
+
+### Multi-Step Form
+
+```ts
+import { setup, stateIn, or } from 'xstate';
+
+const formMachine = setup({}).createMachine({
+  initial: 'step1',
+  states: {
+    step1: {},
+    step2: {},
+    step3: {},
+    review: {}
+  },
+  on: {
+    BACK: [
+      {
+        guard: stateIn('step2'),
+        target: 'step1'
+      },
+      {
+        guard: stateIn('step3'),
+        target: 'step2'
+      },
+      {
+        guard: stateIn('review'),
+        target: 'step3'
+      }
+    ],
+    NEXT: [
+      {
+        guard: stateIn('step1'),
+        target: 'step2'
+      },
+      {
+        guard: stateIn('step2'),
+        target: 'step3'
+      },
+      {
+        guard: stateIn('step3'),
+        target: 'review'
+      }
+    ]
+  }
+});
+```
+
+### State-Dependent Validation
+
+```ts
+import { setup, stateIn } from 'xstate';
+
+const machine = setup({
+  guards: {
+    canEdit: ({ context }) => context.permissions.includes('edit')
+  }
+}).createMachine({
+  initial: 'viewing',
+  context: {
+    permissions: ['read'] as string[]
+  },
+  states: {
+    viewing: {
+      on: {
+        EDIT: {
+          guard: stateIn('viewing'),
+          target: 'editing'
+        }
+      }
+    },
+    editing: {
+      on: {
+        SAVE: 'viewing',
+        CANCEL: 'viewing'
+      }
+    }
+  }
+});
+```
+
+## Behavior
+
+- **State matching**: Uses the same matching logic as `snapshot.matches()`
+- **State IDs**: When using a state ID (prefixed with `#`), checks if the machine is in that specific state node
+- **Nested states**: Supports checking nested state configurations
+- **Parallel states**: Can check multiple parallel regions simultaneously
+
+## When to Use
+
+ Use `stateIn()` when you need to:
+
+1. **Prevent invalid transitions**: Ensure a transition only occurs from specific states
+2. **State-dependent actions**: Execute actions only in certain states
+3. **Complex state checks**: Check nested or parallel state configurations
+4. **Guard composition**: Combine with other guards for sophisticated logic
+
+## Alternative: Context-Based Guards
+
+For simple cases, consider using context flags instead:
+
+```ts
+// Using stateIn
+const machine1 = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {},
+    loading: {}
+  },
+  on: {
+    CANCEL: {
+      guard: stateIn('loading'),
+      target: 'idle'
+    }
+  }
+});
+
+// Using context (simpler for some cases)
+const machine2 = createMachine({
+  context: { isLoading: false },
+  on: {
+    CANCEL: {
+      guard: ({ context }) => context.isLoading,
+      actions: assign({ isLoading: false })
+    }
+  }
+});
+```
+
+## Type Safety
+
+```ts
+type Context = { data: string | null };
+type Event = { type: 'SUBMIT' };
+
+const machine = setup({
+  types: {} as {
+    context: Context;
+    events: Event;
+  }
+}).createMachine({
+  initial: 'idle',
+  states: {
+    idle: {},
+    ready: {}
+  },
+  on: {
+    SUBMIT: {
+      guard: stateIn('ready'),
+      actions: ({ context }) => {
+        // TypeScript knows the context type
+        console.log(context.data);
+      }
+    }
+  }
+});
+```
+
+## See Also
+
+- [and](/api/guards/and) - Combine guards with AND logic
+- [or](/api/guards/or) - Combine guards with OR logic
+- [not](/api/guards/not) - Invert guard results
+- [Guards Overview](/api/guards/overview) - Introduction to guards

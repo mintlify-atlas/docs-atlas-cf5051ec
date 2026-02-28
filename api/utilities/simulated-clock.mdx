@@ -1,0 +1,307 @@
+---
+title: SimulatedClock
+description: Control time for testing and debugging
+---
+
+A simulated clock implementation that allows manual control over time progression. Useful for testing time-dependent behavior in state machines without waiting for real time to pass.
+
+## Class Definition
+
+```typescript
+class SimulatedClock implements Clock {
+  now(): number;
+  setTimeout(fn: (...args: any[]) => void, timeout: number): number;
+  clearTimeout(id: number): void;
+  set(ms: number): void;
+  increment(ms: number): void;
+}
+```
+
+## Constructor
+
+Creates a new simulated clock instance.
+
+```typescript
+const clock = new SimulatedClock();
+```
+
+The clock starts at time `0` and does not advance automatically.
+
+## Methods
+
+### now
+
+Returns the current simulated time in milliseconds.
+
+```typescript
+now(): number
+```
+
+<ParamField path="returns" type="number">
+  The current time of the simulated clock in milliseconds since the clock was created.
+</ParamField>
+
+#### Example
+
+```typescript
+const clock = new SimulatedClock();
+console.log(clock.now()); // 0
+
+clock.increment(1000);
+console.log(clock.now()); // 1000
+```
+
+### setTimeout
+
+Schedules a function to be called after a specified delay.
+
+```typescript
+setTimeout(fn: (...args: any[]) => void, timeout: number): number
+```
+
+<ParamField path="fn" type="(...args: any[]) => void" required>
+  The function to execute when the timeout expires.
+</ParamField>
+
+<ParamField path="timeout" type="number" required>
+  The delay in milliseconds before the function should be called.
+</ParamField>
+
+<ParamField path="returns" type="number">
+  A timeout ID that can be used with `clearTimeout()` to cancel the timeout.
+</ParamField>
+
+#### Example
+
+```typescript
+const clock = new SimulatedClock();
+let called = false;
+
+clock.setTimeout(() => {
+  called = true;
+}, 1000);
+
+clock.increment(1000);
+console.log(called); // true
+```
+
+### clearTimeout
+
+Cancels a scheduled timeout.
+
+```typescript
+clearTimeout(id: number): void
+```
+
+<ParamField path="id" type="number" required>
+  The timeout ID returned by `setTimeout()`.
+</ParamField>
+
+#### Example
+
+```typescript
+const clock = new SimulatedClock();
+let called = false;
+
+const id = clock.setTimeout(() => {
+  called = true;
+}, 1000);
+
+clock.clearTimeout(id);
+clock.increment(1000);
+console.log(called); // false
+```
+
+### set
+
+Sets the clock to a specific time and executes any timeouts that should fire.
+
+```typescript
+set(time: number): void
+```
+
+<ParamField path="time" type="number" required>
+  The new time to set the clock to, in milliseconds. Must be greater than or equal to the current time.
+</ParamField>
+
+<Note>
+  Throws an error if you attempt to travel back in time (set a time less than the current time).
+</Note>
+
+#### Example
+
+```typescript
+const clock = new SimulatedClock();
+const calls: number[] = [];
+
+clock.setTimeout(() => calls.push(1), 100);
+clock.setTimeout(() => calls.push(2), 200);
+clock.setTimeout(() => calls.push(3), 300);
+
+clock.set(250);
+console.log(calls); // [1, 2]
+```
+
+### increment
+
+Advances the clock by a specified amount of time and executes any timeouts that should fire.
+
+```typescript
+increment(ms: number): void
+```
+
+<ParamField path="ms" type="number" required>
+  The amount of time in milliseconds to advance the clock.
+</ParamField>
+
+#### Example
+
+```typescript
+const clock = new SimulatedClock();
+const calls: string[] = [];
+
+clock.setTimeout(() => calls.push('first'), 100);
+clock.setTimeout(() => calls.push('second'), 200);
+
+clock.increment(150);
+console.log(calls); // ['first']
+
+clock.increment(100);
+console.log(calls); // ['first', 'second']
+```
+
+## Usage with XState
+
+### Testing delayed transitions
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+import { SimulatedClock } from 'xstate/dist/SimulatedClock';
+
+const machine = createMachine({
+  initial: 'waiting',
+  states: {
+    waiting: {
+      after: {
+        1000: 'done'
+      }
+    },
+    done: {
+      type: 'final'
+    }
+  }
+});
+
+const clock = new SimulatedClock();
+const actor = createActor(machine, { clock });
+
+actor.start();
+console.log(actor.getSnapshot().value); // 'waiting'
+
+clock.increment(1000);
+console.log(actor.getSnapshot().value); // 'done'
+```
+
+### Testing multiple delays
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+import { SimulatedClock } from 'xstate/dist/SimulatedClock';
+
+const trafficLightMachine = createMachine({
+  initial: 'green',
+  states: {
+    green: {
+      after: {
+        3000: 'yellow'
+      }
+    },
+    yellow: {
+      after: {
+        1000: 'red'
+      }
+    },
+    red: {
+      after: {
+        3000: 'green'
+      }
+    }
+  }
+});
+
+const clock = new SimulatedClock();
+const actor = createActor(trafficLightMachine, { clock });
+
+actor.start();
+
+console.log(actor.getSnapshot().value); // 'green'
+
+clock.increment(3000);
+console.log(actor.getSnapshot().value); // 'yellow'
+
+clock.increment(1000);
+console.log(actor.getSnapshot().value); // 'red'
+
+clock.increment(3000);
+console.log(actor.getSnapshot().value); // 'green'
+```
+
+### Fast-forward to a specific time
+
+```typescript
+import { createMachine, createActor, assign } from 'xstate';
+import { SimulatedClock } from 'xstate/dist/SimulatedClock';
+
+const counterMachine = createMachine({
+  types: {} as {
+    context: { count: number };
+  },
+  initial: 'counting',
+  context: { count: 0 },
+  states: {
+    counting: {
+      after: {
+        1000: {
+          actions: assign({
+            count: ({ context }) => context.count + 1
+          }),
+          target: 'counting',
+          reenter: true
+        }
+      }
+    }
+  }
+});
+
+const clock = new SimulatedClock();
+const actor = createActor(counterMachine, { clock });
+
+actor.start();
+
+// Jump to 5 seconds
+clock.set(5000);
+console.log(actor.getSnapshot().context.count); // 5
+```
+
+## Notes
+
+<Note>
+  Timeouts are executed in the order they were scheduled when multiple timeouts expire at the same time.
+</Note>
+
+<Warning>
+  Attempting to set the clock to a time in the past will throw an error: `"Unable to travel back in time"`.
+</Warning>
+
+<Tip>
+  Use `SimulatedClock` in tests to make time-dependent tests deterministic and fast. Instead of using `setTimeout()` or `await new Promise(resolve => setTimeout(resolve, ms))`, you can control time progression explicitly.
+</Tip>
+
+<Tip>
+  The simulated clock is particularly useful for testing:
+  - Delayed transitions (`after`)
+  - Timeout guards
+  - Debounced actions
+  - Rate limiting
+  - Any time-dependent behavior
+</Tip>

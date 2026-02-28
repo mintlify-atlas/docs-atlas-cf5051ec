@@ -1,0 +1,131 @@
+---
+title: assign
+description: API reference for the assign action
+---
+
+Updates the current context of the machine.
+
+```ts
+import { assign } from 'xstate';
+```
+
+## Signature
+
+```ts
+function assign<
+  TContext extends MachineContext,
+  TExpressionEvent extends AnyEventObject,
+  TParams extends ParameterizedObject['params'] | undefined,
+  TEvent extends EventObject,
+  TActor extends ProvidedActor
+>(
+  assignment:
+    | Assigner<LowInfer<TContext>, TExpressionEvent, TParams, TEvent, TActor>
+    | PropertyAssigner<LowInfer<TContext>, TExpressionEvent, TParams, TEvent, TActor>
+): ActionFunction<
+  TContext,
+  TExpressionEvent,
+  TEvent,
+  TParams,
+  TActor,
+  never,
+  never,
+  never,
+  never
+>
+```
+
+## Parameters
+
+<ParamField path="assignment" type="Assigner | PropertyAssigner" required>
+  An object that represents the partial context to update, or a function that returns an object that represents the partial context to update.
+  
+  When provided as a function, it receives `AssignArgs` containing:
+  - `context` - the current state context
+  - `event` - the event that triggered this action
+  - `spawn` - a function to spawn child actors
+  - `self` - reference to the current actor
+  - `system` - reference to the actor system
+  
+  When provided as an object, each property can be either:
+  - A static value to assign
+  - A function that receives `AssignArgs` and returns the value to assign
+</ParamField>
+
+## Returns
+
+<ResponseField name="ActionFunction" type="ActionFunction">
+  An action function that updates the machine's context when executed.
+</ResponseField>
+
+## Examples
+
+### Object assignment
+
+```ts
+import { createMachine, assign } from 'xstate';
+
+const countMachine = createMachine({
+  context: {
+    count: 0,
+    message: ''
+  },
+  on: {
+    inc: {
+      actions: assign({
+        count: ({ context }) => context.count + 1
+      })
+    },
+    updateMessage: {
+      actions: assign({
+        message: ({ event }) => event.message
+      })
+    }
+  }
+});
+```
+
+### Function assignment
+
+```ts
+const machine = createMachine({
+  context: {
+    count: 0,
+    message: ''
+  },
+  on: {
+    inc: {
+      actions: assign(({ context, event }) => {
+        return {
+          count: context.count + 1,
+          message: event.message.trim()
+        };
+      })
+    }
+  }
+});
+```
+
+### Using spawn in assign
+
+```ts
+import { createMachine, assign } from 'xstate';
+import { childMachine } from './childMachine';
+
+const machine = createMachine({
+  context: {
+    childRef: null
+  },
+  entry: assign({
+    childRef: ({ spawn }) => spawn(childMachine, { id: 'child' })
+  })
+});
+```
+
+<Warning>
+  Custom actions should not call `assign()` directly, as it is not imperative. Use it only in machine configurations.
+</Warning>
+
+<Note>
+  If `context` is undefined in the machine config, `assign` will throw an error at runtime.
+</Note>

@@ -1,0 +1,439 @@
+---
+title: setup
+description: API reference for the setup function
+---
+
+Configures and creates a type-safe state machine builder with predefined implementations for actions, guards, actors, and delays.
+
+The `setup()` function is the recommended way to create state machines in XState v5, as it provides excellent TypeScript type inference and allows you to define reusable implementations.
+
+## Signature
+
+```typescript
+function setup<
+  TContext extends MachineContext,
+  TEvent extends AnyEventObject,
+  TActors extends Record<string, UnknownActorLogic>,
+  TChildrenMap extends Record<string, string>,
+  TActions extends Record<string, ParameterizedObject['params'] | undefined>,
+  TGuards extends Record<string, ParameterizedObject['params'] | undefined>,
+  TDelay extends string,
+  TTag extends string,
+  TInput,
+  TOutput extends NonReducibleUnknown,
+  TEmitted extends EventObject,
+  TMeta extends MetaObject
+>({
+  types,
+  actors,
+  actions,
+  guards,
+  delays
+}): SetupReturn<...>
+```
+
+## Parameters
+
+<ParamField path="config" type="object" required>
+  Configuration object for the machine setup.
+
+  <Expandable title="properties">
+    <ParamField path="types" type="SetupTypes">
+      Type definitions for TypeScript inference. This is a compile-time only property.
+
+      ```ts
+      types: {} as {
+        context: { count: number };
+        events: { type: 'INCREMENT' } | { type: 'DECREMENT' };
+        input: { initialCount: number };
+        output: number;
+      }
+      ```
+    </ParamField>
+
+    <ParamField path="actors" type="Record<string, ActorLogic>">
+      A map of actor logic creators that can be invoked or spawned.
+
+      ```ts
+      actors: {
+        fetchUser: fromPromise(async ({ input }) => {
+          const response = await fetch(`/api/users/${input.userId}`);
+          return response.json();
+        })
+      }
+      ```
+    </ParamField>
+
+    <ParamField path="actions" type="Record<string, ActionFunction>">
+      A map of action implementations that can be referenced by name.
+
+      ```ts
+      actions: {
+        logMessage: ({ context, event }) => {
+          console.log(context.message, event);
+        }
+      }
+      ```
+    </ParamField>
+
+    <ParamField path="guards" type="Record<string, GuardPredicate>">
+      A map of guard (condition) implementations that can be referenced by name.
+
+      ```ts
+      guards: {
+        isPositive: ({ context }) => context.count > 0,
+        isEven: ({ context }) => context.count % 2 === 0
+      }
+      ```
+    </ParamField>
+
+    <ParamField path="delays" type="Record<string, DelayConfig>">
+      A map of delay values or functions for delayed transitions and actions.
+
+      ```ts
+      delays: {
+        SHORT: 1000,
+        LONG: ({ context }) => context.timeout
+      }
+      ```
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Returns
+
+<ResponseField name="setupReturn" type="SetupReturn">
+  An object with methods for creating machines and type-safe helpers.
+
+  <Expandable title="methods">
+    <ResponseField name="createMachine" type="function">
+      Creates a state machine with the configured types and implementations.
+
+      ```ts
+      createMachine(config: MachineConfig): StateMachine
+      ```
+    </ResponseField>
+
+    <ResponseField name="extend" type="function">
+      Returns a new setup with additional actions, guards, and delays merged with existing ones.
+
+      ```ts
+      extend({ actions?, guards?, delays? }): SetupReturn
+      ```
+    </ResponseField>
+
+    <ResponseField name="assign" type="function">
+      Type-safe version of the assign action creator.
+    </ResponseField>
+
+    <ResponseField name="sendTo" type="function">
+      Type-safe version of the sendTo action creator.
+    </ResponseField>
+
+    <ResponseField name="raise" type="function">
+      Type-safe version of the raise action creator.
+    </ResponseField>
+
+    <ResponseField name="log" type="function">
+      Type-safe version of the log action creator.
+    </ResponseField>
+
+    <ResponseField name="cancel" type="function">
+      Type-safe version of the cancel action creator.
+    </ResponseField>
+
+    <ResponseField name="stopChild" type="function">
+      Type-safe version of the stopChild action creator.
+    </ResponseField>
+
+    <ResponseField name="enqueueActions" type="function">
+      Type-safe version of the enqueueActions action creator.
+    </ResponseField>
+
+    <ResponseField name="emit" type="function">
+      Type-safe version of the emit action creator.
+    </ResponseField>
+
+    <ResponseField name="spawnChild" type="function">
+      Type-safe version of the spawnChild action creator.
+    </ResponseField>
+
+    <ResponseField name="createStateConfig" type="function">
+      Creates a type-safe state config that can be reused in multiple machines.
+    </ResponseField>
+
+    <ResponseField name="createAction" type="function">
+      Creates a type-safe action implementation.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Examples
+
+### Basic setup with types
+
+```ts
+import { setup, createActor } from 'xstate';
+
+const counterMachine = setup({
+  types: {} as {
+    context: { count: number };
+    events: { type: 'INCREMENT' } | { type: 'DECREMENT' };
+  }
+}).createMachine({
+  initial: 'active',
+  context: { count: 0 },
+  states: {
+    active: {
+      on: {
+        INCREMENT: {
+          actions: assign({
+            count: ({ context }) => context.count + 1
+          })
+        },
+        DECREMENT: {
+          actions: assign({
+            count: ({ context }) => context.count - 1
+          })
+        }
+      }
+    }
+  }
+});
+```
+
+### Setup with actions and guards
+
+```ts
+import { setup } from 'xstate';
+
+const feedbackMachine = setup({
+  types: {} as {
+    context: { feedback: string; retries: number };
+    events: 
+      | { type: 'SUBMIT' }
+      | { type: 'RETRY' }
+      | { type: 'CANCEL' };
+  },
+  actions: {
+    logSubmission: ({ context }) => {
+      console.log('Submitting feedback:', context.feedback);
+    },
+    incrementRetries: assign({
+      retries: ({ context }) => context.retries + 1
+    }),
+    clearRetries: assign({
+      retries: 0
+    })
+  },
+  guards: {
+    canRetry: ({ context }) => context.retries < 3,
+    hasValidFeedback: ({ context }) => context.feedback.length > 0
+  }
+}).createMachine({
+  initial: 'editing',
+  context: { feedback: '', retries: 0 },
+  states: {
+    editing: {
+      on: {
+        SUBMIT: {
+          guard: 'hasValidFeedback',
+          target: 'submitting'
+        }
+      }
+    },
+    submitting: {
+      entry: 'logSubmission',
+      on: {
+        SUCCESS: {
+          target: 'success',
+          actions: 'clearRetries'
+        },
+        ERROR: {
+          guard: 'canRetry',
+          target: 'editing',
+          actions: 'incrementRetries'
+        }
+      }
+    },
+    success: {
+      type: 'final'
+    }
+  }
+});
+```
+
+### Setup with actors
+
+```ts
+import { setup, fromPromise } from 'xstate';
+
+const userMachine = setup({
+  types: {} as {
+    context: { user: User | null };
+    events: { type: 'FETCH'; userId: string };
+  },
+  actors: {
+    fetchUser: fromPromise(async ({ input }: { input: { userId: string } }) => {
+      const response = await fetch(`/api/users/${input.userId}`);
+      return response.json();
+    })
+  }
+}).createMachine({
+  initial: 'idle',
+  context: { user: null },
+  states: {
+    idle: {
+      on: {
+        FETCH: 'loading'
+      }
+    },
+    loading: {
+      invoke: {
+        src: 'fetchUser',
+        input: ({ event }) => ({ userId: event.userId }),
+        onDone: {
+          target: 'success',
+          actions: assign({
+            user: ({ event }) => event.output
+          })
+        },
+        onError: 'failure'
+      }
+    },
+    success: {},
+    failure: {}
+  }
+});
+```
+
+### Setup with delays
+
+```ts
+import { setup } from 'xstate';
+
+const timeoutMachine = setup({
+  types: {} as {
+    context: { timeout: number };
+    events: { type: 'START' } | { type: 'RESET' };
+  },
+  delays: {
+    SHORT: 1000,
+    LONG: 5000,
+    DYNAMIC: ({ context }) => context.timeout
+  }
+}).createMachine({
+  initial: 'idle',
+  context: { timeout: 3000 },
+  states: {
+    idle: {
+      on: {
+        START: 'waiting'
+      }
+    },
+    waiting: {
+      after: {
+        DYNAMIC: 'done'
+      },
+      on: {
+        RESET: 'idle'
+      }
+    },
+    done: {
+      type: 'final'
+    }
+  }
+});
+```
+
+### Using extend
+
+```ts
+import { setup } from 'xstate';
+
+const baseSetup = setup({
+  types: {} as {
+    context: { count: number };
+    events: { type: 'INCREMENT' };
+  },
+  actions: {
+    logCount: ({ context }) => {
+      console.log(context.count);
+    }
+  }
+});
+
+const extendedSetup = baseSetup.extend({
+  actions: {
+    logDouble: ({ context }) => {
+      console.log(context.count * 2);
+    }
+  }
+});
+
+const machine = extendedSetup.createMachine({
+  initial: 'active',
+  context: { count: 0 },
+  states: {
+    active: {
+      entry: ['logCount', 'logDouble']
+    }
+  }
+});
+```
+
+### Using input and output types
+
+```ts
+import { setup } from 'xstate';
+
+const calculatorMachine = setup({
+  types: {} as {
+    context: { total: number };
+    input: { initialValue: number };
+    output: number;
+    events: { type: 'ADD'; value: number };
+  }
+}).createMachine({
+  initial: 'calculating',
+  context: ({ input }) => ({
+    total: input.initialValue
+  }),
+  states: {
+    calculating: {
+      on: {
+        ADD: {
+          actions: assign({
+            total: ({ context, event }) => context.total + event.value
+          })
+        },
+        FINISH: 'done'
+      }
+    },
+    done: {
+      type: 'final'
+    }
+  },
+  output: ({ context }) => context.total
+});
+
+const actor = createActor(calculatorMachine, {
+  input: { initialValue: 10 }
+});
+actor.start();
+actor.send({ type: 'ADD', value: 5 });
+```
+
+## Notes
+
+- The `types` property is used solely for TypeScript type inference and has no runtime behavior
+- Actions, guards, actors, and delays defined in setup can be referenced by their string keys in the machine configuration
+- Using `setup()` is recommended over passing implementations as a second argument to `createMachine()`
+- The `extend()` method allows for composition and reuse of configurations
+
+## See also
+
+- [createMachine()](/api/create-machine) - Create a state machine
+- [assign()](/actions/assign) - Update context
+- [Actions guide](/actions) - Working with actions
+- [Guards guide](/guards) - Working with guards

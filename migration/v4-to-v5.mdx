@@ -1,0 +1,419 @@
+---
+title: Migration Guide v4 to v5
+description: Comprehensive guide to migrating from XState v4 to v5
+---
+
+XState v5 brings significant improvements to the API, TypeScript types, and overall developer experience. This guide will help you migrate from XState v4 to v5.
+
+## Key Changes
+
+### Interpreter renamed to Actor
+
+The `interpret()` function has been replaced with `createActor()`:
+
+```diff
+-import { createMachine, interpret } from 'xstate';
++import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({ /* ... */ });
+
+-const service = interpret(machine).start();
++const actor = createActor(machine).start();
+```
+
+### setup() API (Recommended)
+
+XState v5 introduces the `setup()` API for better type safety and organization:
+
+```typescript
+import { setup, createActor } from 'xstate';
+
+const machine = setup({
+  types: {} as {
+    context: { count: number };
+    events: { type: 'INCREMENT' } | { type: 'DECREMENT' };
+  },
+  actions: {
+    increment: assign({ count: ({ context }) => context.count + 1 })
+  },
+  guards: {
+    isPositive: ({ context }) => context.count > 0
+  }
+}).createMachine({
+  context: { count: 0 },
+  initial: 'active',
+  states: {
+    active: {
+      on: {
+        INCREMENT: { actions: 'increment' }
+      }
+    }
+  }
+});
+```
+
+### State to Snapshot
+
+All references to "state" are now "snapshot" for clarity:
+
+```diff
+-const state = actor.getSnapshot();
++const snapshot = actor.getSnapshot();
+
+-actor.subscribe((state) => {
+-  console.log(state.value);
++actor.subscribe((snapshot) => {
++  console.log(snapshot.value);
+});
+```
+
+### Sending Events
+
+Events must now be objects, not strings:
+
+```diff
+-actor.send('TOGGLE');
++actor.send({ type: 'TOGGLE' });
+
+-actor.send('EVENT', { some: 'payload' });
++actor.send({ type: 'EVENT', some: 'payload' });
+```
+
+<Warning>
+Sending string events will throw an error in v5. Always use event objects with a `type` property.
+</Warning>
+
+### Schema to Types
+
+The `schema` property has been renamed to `types`:
+
+```diff
+const machine = createMachine({
+- schema: {
+-   context: {} as { count: number },
+-   events: {} as { type: 'INCREMENT' }
+- },
++ types: {} as {
++   context: { count: number };
++   events: { type: 'INCREMENT' };
++ },
+  context: { count: 0 }
+});
+```
+
+### Context is Required
+
+If you specify context types, the `context` property is now required:
+
+```typescript
+// ❌ TypeScript error
+createMachine({
+  types: {} as {
+    context: { count: number };
+  }
+  // Missing context property
+});
+
+// ✅ OK
+createMachine({
+  types: {} as {
+    context: { count: number };
+  },
+  context: {
+    count: 0
+  }
+});
+```
+
+### Actions are Now Functions
+
+All built-in action creators (`assign`, `sendTo`, etc.) now return functions:
+
+```typescript
+import { assign } from 'xstate';
+
+// The exact shape is an implementation detail
+// Just pass them directly to actions
+const machine = createMachine({
+  context: { count: 0 },
+  entry: assign({ count: ({ context }) => context.count + 1 })
+});
+```
+
+### Assign Actions Execute in Order
+
+`assign()` actions are now executed in the order they are defined, rather than being automatically prioritized:
+
+```typescript
+const machine = createMachine({
+  context: { count: 0, doubled: 0 },
+  entry: [
+    assign({ count: ({ context }) => context.count + 1 }), // count = 1
+    assign({ doubled: ({ context }) => context.count * 2 }) // doubled = 2 (uses updated count)
+  ]
+});
+```
+
+<Warning>
+To maintain v4 behavior, ensure `assign()` actions are defined before other actions.
+</Warning>
+
+### Data Renamed to Output
+
+Final states now use `output` instead of `data`:
+
+```diff
+const machine = createMachine({
+  initial: 'loading',
+  states: {
+    loading: {
+      on: { SUCCESS: 'success' }
+    },
+    success: {
+      type: 'final',
+-     data: { message: 'Success!' }
++     output: { message: 'Success!' }
+    }
+  }
+});
+```
+
+### External Renamed to Reenter
+
+The `external` property on transitions has been renamed to `reenter`:
+
+```diff
+on: {
+  SOME_EVENT: {
+    target: 'sameState',
+-   external: true
++   reenter: true
+  }
+}
+```
+
+### In Guards Replaced with stateIn()
+
+The `in` property for conditional transitions is now a guard:
+
+```diff
++import { stateIn } from 'xstate/guards';
+
+on: {
+  SOME_EVENT: {
+    target: 'somewhere',
+-   in: '#someState'
++   guard: stateIn('#someState')
+  }
+}
+```
+
+### Higher-Level Guards
+
+XState v5 includes composable guards:
+
+```typescript
+import { and, or, not } from 'xstate/guards';
+
+const machine = createMachine({
+  on: {
+    EVENT: {
+      target: 'somewhere',
+      guard: and([
+        'isAuthenticated',
+        or(['hasPermission', not('isBlocked')])
+      ])
+    }
+  }
+});
+```
+
+### Actor Systems and systemId
+
+Actors are now part of a "system" and can be referenced via `systemId`:
+
+```typescript
+const machine = createMachine({
+  invoke: {
+    src: emailMachine,
+    systemId: 'emailer' // Register with system
+  }
+});
+
+// Reference from anywhere in the system
+const anotherMachine = createMachine({
+  entry: sendTo(
+    ({ system }) => system.get('emailer'),
+    { type: 'SEND_EMAIL' }
+  )
+});
+```
+
+### Restoring Persisted State
+
+State restoration now uses the `snapshot` option:
+
+```diff
+-interpret(machine).start(state);
++createActor(machine, { snapshot }).start();
+```
+
+Get persisted snapshot:
+
+```typescript
+const actor = createActor(machine).start();
+const persistedSnapshot = actor.getPersistedSnapshot();
+
+// Later...
+const restoredActor = createActor(machine, {
+  snapshot: persistedSnapshot
+}).start();
+```
+
+### Input Instead of withContext
+
+Pass initial data via `input`:
+
+```typescript
+const greetMachine = createMachine({
+  context: ({ input }) => ({
+    greeting: `Hello ${input.name}!`
+  }),
+  entry: ({ event }) => {
+    console.log(event.input); // { name: 'David' }
+  }
+});
+
+const actor = createActor(greetMachine, {
+  input: { name: 'David' }
+}).start();
+```
+
+### AutoForward Removed
+
+Explicitly forward events instead:
+
+```diff
+invoke: {
+  id: 'child',
+  src: 'someSrc',
+- autoForward: true
+},
+on: {
++ EVENT_TO_FORWARD: {
++   actions: sendTo('child', (_, event) => event)
++ }
+}
+```
+
+### Delayed Event IDs
+
+Delayed events no longer derive IDs from event types. Use explicit IDs:
+
+```diff
+-entry: raise({ type: 'TIMER' }, { delay: 200 });
+-exit: cancel('TIMER');
++entry: raise({ type: 'TIMER' }, { delay: 200, id: 'myTimer' });
++exit: cancel('myTimer');
+```
+
+### Compound States Require Initial
+
+An error is now thrown if compound states don't specify an `initial` state:
+
+```javascript
+const machine = createMachine({
+  initial: 'red',
+  states: {
+    red: {
+      initial: 'walk', // ✅ Required!
+      states: {
+        walk: {},
+        wait: {}
+      }
+    }
+  }
+});
+```
+
+<Warning>
+Forgetting `initial` will throw: "No initial state specified for state node. Try adding `initial: 'stateName'`".
+</Warning>
+
+### Snapshot Shape Consistency
+
+All actor snapshots have consistent properties:
+
+- `status`: `'active' | 'done' | 'error' | 'stopped'`
+- `output`: Output data when `status: 'done'`
+- `error`: Error when `status: 'error'`
+- `context`: Actor context
+
+```typescript
+const promiseActor = fromPromise(async () => 42);
+const snapshot = promiseActor.getSnapshot();
+
+if (snapshot.status === 'done') {
+  console.log(snapshot.output); // 42
+}
+```
+
+### Removed Methods
+
+The following have been removed:
+
+- `actorRef.onEvent()` - Use `subscribe()` instead
+- `actorRef.onSend()` - Use `subscribe()` instead
+- `actorRef.onChange()` - Use `subscribe()` instead
+- `actorRef.sender()` - Use `actorRef.send()` instead
+- `actorRef.onStop()` - Use `subscribe({ complete() {} })` instead
+- `state.toStrings()` - Not replaced
+- `state.nextEvents` - Not replaced
+- `machine.initialState` - Use `machine.getInitialState()` instead
+- `machine.withConfig()` - Use `machine.provide()` instead
+
+### Target Resolution
+
+Targeting siblings from root now requires explicit relative syntax:
+
+```diff
+createMachine({
+  id: 'direction',
+  initial: 'left',
+  states: {
+    left: {},
+    right: {}
+  },
+  on: {
+-   LEFT_CLICK: 'left',
++   LEFT_CLICK: '.left'
+  }
+});
+```
+
+## Migration Checklist
+
+- [ ] Replace `interpret()` with `createActor()`
+- [ ] Convert string events to event objects
+- [ ] Rename `schema` to `types`
+- [ ] Add required `context` when types are specified
+- [ ] Rename `data` to `output` in final states
+- [ ] Replace `external` with `reenter`
+- [ ] Replace `in` with `stateIn()` guard
+- [ ] Update state restoration to use `snapshot` option
+- [ ] Replace `autoForward` with explicit `sendTo()` actions
+- [ ] Add explicit IDs to delayed events
+- [ ] Add `initial` to all compound states
+- [ ] Update target resolution from root
+- [ ] Replace removed methods with alternatives
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Breaking Changes Reference" icon="triangle-exclamation" href="/migration/breaking-changes">
+    Complete list of all breaking changes in v5
+  </Card>
+  <Card title="Getting Started" icon="rocket" href="/getting-started/installation">
+    Start building with XState v5
+  </Card>
+</CardGroup>

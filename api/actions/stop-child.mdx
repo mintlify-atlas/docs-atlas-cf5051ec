@@ -1,0 +1,193 @@
+---
+title: stopChild
+description: API reference for the stopChild action
+---
+
+Stops a child actor.
+
+```ts
+import { stopChild } from 'xstate';
+```
+
+## Signature
+
+```ts
+function stopChild<
+  TContext extends MachineContext,
+  TExpressionEvent extends EventObject,
+  TParams extends ParameterizedObject['params'] | undefined,
+  TEvent extends EventObject
+>(
+  actorRef: ResolvableActorRef<TContext, TExpressionEvent, TParams, TEvent>
+): StopAction<TContext, TExpressionEvent, TParams, TEvent>
+```
+
+## Parameters
+
+<ParamField path="actorRef" type="string | ActorRef | ResolvableActorRef" required>
+  The actor to stop. Can be:
+  - String: the ID of a child actor
+  - `ActorRef`: direct reference to an actor
+  - Function: expression that receives `ActionArgs` and returns an actor ref or ID
+</ParamField>
+
+## Returns
+
+<ResponseField name="StopAction" type="StopAction">
+  An action function that stops the child actor when executed.
+</ResponseField>
+
+## Examples
+
+### Stop by ID
+
+```ts
+import { createMachine, spawnChild, stopChild } from 'xstate';
+
+const machine = createMachine({
+  on: {
+    SPAWN: {
+      actions: spawnChild(childMachine, { id: 'myChild' })
+    },
+    STOP: {
+      actions: stopChild('myChild')
+    }
+  }
+});
+```
+
+### Stop by actor ref
+
+```ts
+const machine = createMachine({
+  types: {} as {
+    context: { childRef: ActorRef<typeof childMachine> | null };
+  },
+  context: { childRef: null },
+  on: {
+    SPAWN: {
+      actions: assign({
+        childRef: ({ spawn }) => spawn(childMachine)
+      })
+    },
+    STOP: {
+      actions: stopChild(({ context }) => context.childRef!)
+    }
+  }
+});
+```
+
+### Dynamic actor ID
+
+```ts
+const machine = createMachine({
+  types: {} as {
+    events:
+      | { type: 'SPAWN'; id: string }
+      | { type: 'STOP'; id: string };
+  },
+  on: {
+    SPAWN: {
+      actions: spawnChild('worker', {
+        id: ({ event }) => event.id
+      })
+    },
+    STOP: {
+      actions: stopChild(({ event }) => event.id)
+    }
+  }
+});
+```
+
+### Stop on state exit
+
+```ts
+const machine = createMachine({
+  initial: 'running',
+  states: {
+    running: {
+      entry: spawnChild(workerMachine, { id: 'worker' }),
+      exit: stopChild('worker'),
+      on: {
+        FINISH: 'done'
+      }
+    },
+    done: {}
+  }
+});
+```
+
+### Stop multiple children
+
+```ts
+import { enqueueActions } from 'xstate';
+
+const machine = createMachine({
+  types: {} as {
+    context: { workerIds: string[] };
+  },
+  context: { workerIds: ['worker1', 'worker2', 'worker3'] },
+  on: {
+    SPAWN_ALL: {
+      actions: enqueueActions(({ enqueue, context }) => {
+        context.workerIds.forEach((id) => {
+          enqueue.spawnChild('worker', { id });
+        });
+      })
+    },
+    STOP_ALL: {
+      actions: enqueueActions(({ enqueue, context }) => {
+        context.workerIds.forEach((id) => {
+          enqueue.stopChild(id);
+        });
+      })
+    }
+  }
+});
+```
+
+### Conditional stop
+
+```ts
+const machine = createMachine({
+  types: {} as {
+    context: { shouldKeepAlive: boolean };
+  },
+  context: { shouldKeepAlive: false },
+  initial: 'active',
+  states: {
+    active: {
+      entry: spawnChild(taskMachine, { id: 'task' }),
+      on: {
+        COMPLETE: 'done'
+      }
+    },
+    done: {
+      always: [
+        {
+          guard: ({ context }) => !context.shouldKeepAlive,
+          actions: stopChild('task')
+        }
+      ]
+    }
+  }
+});
+```
+
+## Notes
+
+<Note>
+  When a child actor is stopped, it is removed from the machine's snapshot and will no longer be accessible via its ID or reference.
+</Note>
+
+<Tip>
+  Stopping a child actor enqueues a stop event in the child's mailbox. Any events already in the child's queue will be processed before the actor stops.
+</Tip>
+
+<Warning>
+  If an actor is stopped before it has started (e.g., stopped in the same macrostep it was spawned), it will be prevented from starting.
+</Warning>
+
+<Note>
+  The `stop` export is deprecated. Use `stopChild` instead.
+</Note>

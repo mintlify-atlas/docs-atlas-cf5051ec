@@ -1,0 +1,223 @@
+---
+title: Contributing to XState
+description: How to contribute to XState and the Stately ecosystem
+---
+
+Thank you for your interest in contributing to XState! Contributors like you make this project possible, and we welcome any contributions to the code base and the documentation.
+
+## Ways to Contribute
+
+There are several ways you can contribute to XState:
+
+<CardGroup cols={2}>
+  <Card title="Submit an Issue" icon="bug" href="#submit-an-issue">
+    Report bugs or request features
+  </Card>
+  <Card title="Make Changes" icon="code" href="#making-changes">
+    Fix bugs or add new features
+  </Card>
+  <Card title="Write Documentation" icon="book" href="https://github.com/statelyai/docs">
+    Improve or expand the docs
+  </Card>
+  <Card title="Help Others" icon="comments" href="#helping-the-community">
+    Answer questions on Discord or GitHub
+  </Card>
+</CardGroup>
+
+## Code of Conduct
+
+Please read and follow our [Code of Conduct](https://github.com/statelyai/xstate/blob/main/CODE_OF_CONDUCT.md). We are committed to providing a welcoming and inclusive environment for all contributors.
+
+## Development Environment
+
+### Prerequisites
+
+- Latest version of Node.js
+- pnpm package manager
+
+### Setup
+
+1. [Fork](https://docs.github.com/en/github/getting-started-with-github/fork-a-repo) and [clone](https://docs.github.com/en/github/creating-cloning-and-archiving-repositories/cloning-a-repository) the [XState repository](https://github.com/statelyai/xstate)
+2. Install dependencies:
+
+```bash
+pnpm install
+```
+
+This is a monorepo containing XState, @xstate/store, and related packages.
+
+## Making Changes
+
+Pull requests are encouraged! If you want to add a feature or fix a bug:
+
+### Step 1: Create a Branch
+
+[Create a separate branch](https://docs.github.com/en/desktop/contributing-and-collaborating-using-github-desktop/managing-branches) for your changes:
+
+```bash
+git checkout -b my-feature-branch
+```
+
+### Step 2: Make Your Changes
+
+Make your changes and write tests that validate your change and/or fix.
+
+### Step 3: Run Tests
+
+Run the appropriate test suite:
+
+```bash
+# For all packages
+pnpm test
+
+# For core XState only
+pnpm test:core
+
+# For @xstate/store only
+pnpm test:store
+```
+
+### Step 4: Type Check
+
+Ensure there are no TypeScript errors:
+
+```bash
+pnpm typecheck
+```
+
+### Step 5: Create a Changeset
+
+Create a changeset describing your changes:
+
+```bash
+pnpm changeset
+```
+
+When creating a changeset:
+- Provide a short description of the changes
+- Include a code example if applicable
+- Focus on details relevant to developers using the package
+- Avoid implementation details
+
+Learn more about [changesets](https://github.com/atlassian/changesets).
+
+### Step 6: Push and Open a PR
+
+Push your branch and open a pull request:
+
+```bash
+git push origin my-feature-branch
+```
+
+PRs are reviewed promptly and merged within a day or two (or even within an hour) if everything looks good!
+
+## Submit an Issue
+
+Issues and bug reports are encouraged. If you want to submit an issue:
+
+### Before Submitting
+
+1. Search [existing issues](https://github.com/statelyai/xstate/issues) to check if your issue already exists or has been solved
+2. Check the [documentation](https://stately.ai/docs) to see if your question is answered there
+
+### Creating an Issue
+
+1. [Create a new issue](https://github.com/statelyai/xstate/issues/new/choose)
+2. Choose the appropriate issue template
+3. Fill out all details in the template to help us understand the issue
+4. Include:
+   - Clear description of the problem
+   - Steps to reproduce
+   - Expected vs actual behavior
+   - Code examples or reproduction links
+   - XState version
+
+We'll try to respond promptly and address your issue as soon as possible.
+
+## Contributing Examples
+
+Our [examples](https://github.com/statelyai/xstate/tree/main/examples) are self-contained apps that show how to:
+- Solve common problems
+- Integrate with other frameworks (Vue, Svelte, etc.)
+- Build something fun with XState
+
+To contribute an example, please read the [examples readme](https://github.com/statelyai/xstate/blob/main/examples/readme.md).
+
+## Contributing to Documentation
+
+The [Stately and XState docs](https://stately.ai/docs) are in a separate repository. See the [docs contribution guide](https://github.com/statelyai/docs/blob/main/CONTRIBUTING.md) for more information.
+
+### Legacy Documentation
+
+The legacy docs at [xstate.js.org/docs](https://xstate.js.org/docs) are in the `/docs` folder of the main XState repository. They are built with [VuePress](https://vuepress.vuejs.org) and deployed via GitHub Pages.
+
+## Helping the Community
+
+You can help other users by:
+
+<CardGroup cols={2}>
+  <Card title="GitHub Discussions" icon="github" href="https://github.com/statelyai/xstate/discussions">
+    Answer questions and share knowledge
+  </Card>
+  <Card title="Discord Help Channel" icon="discord" href="https://discord.gg/xstate">
+    Provide real-time support
+  </Card>
+</CardGroup>
+
+## Build System
+
+### Building Packages
+
+We use [preconstruct](https://preconstruct.tools/) to build packages. During development, preconstruct creates redirecting files that always use source files from the monorepo.
+
+This happens automatically during the `postinstall` step. If you build packages manually, you may need to restore these files:
+
+```bash
+pnpm postinstall
+```
+
+### Publishing
+
+We use [changesets](https://github.com/atlassian/changesets) to manage releases:
+
+1. Contributors create changesets describing their changes
+2. When changesets are merged to main, a release PR is automatically prepared
+3. When the release PR is merged, packages are automatically published
+
+You don't need to worry about versioning or publishing—just create your changeset!
+
+## Testing Guidelines
+
+- Write tests for all new features and bug fixes
+- Ensure existing tests still pass
+- Use descriptive test names that explain the behavior being tested
+- Include edge cases and error scenarios
+- Test both TypeScript types and runtime behavior
+
+## Pull Request Guidelines
+
+- Keep PRs focused on a single feature or fix
+- Write clear commit messages
+- Update documentation if you change APIs
+- Respond to review feedback promptly
+- Ensure CI checks pass
+- Be patient—maintainers will review as soon as possible!
+
+## Questions?
+
+If you have questions about contributing, feel free to:
+
+- Ask in the [GitHub Discussions](https://github.com/statelyai/xstate/discussions)
+- Join the [Discord server](https://discord.gg/xstate)
+- Tag maintainers in your PR or issue
+
+We're here to help and appreciate your contributions!
+
+## Recognition
+
+All contributors are recognized in:
+- The GitHub contributors list
+- Release notes (via changesets)
+- The community
+
+Thank you for making XState better! 🎉

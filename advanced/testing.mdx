@@ -1,0 +1,476 @@
+---
+title: Testing
+description: Strategies and utilities for testing XState machines
+---
+
+Testing state machines is crucial for ensuring your application logic works correctly. XState provides several approaches for testing, from unit tests to model-based testing.
+
+## Unit Testing
+
+The simplest approach is to test state transitions directly using the machine's `transition()` method:
+
+```typescript
+import { createMachine } from 'xstate';
+import { describe, it, expect } from 'vitest';
+
+const toggleMachine = createMachine({
+  id: 'toggle',
+  initial: 'inactive',
+  states: {
+    inactive: {
+      on: { TOGGLE: 'active' }
+    },
+    active: {
+      on: { TOGGLE: 'inactive' }
+    }
+  }
+});
+
+describe('toggle machine', () => {
+  it('should transition from inactive to active', () => {
+    const initialState = toggleMachine.getInitialSnapshot();
+    const nextState = toggleMachine.transition(initialState, { type: 'TOGGLE' });
+    
+    expect(nextState.value).toBe('active');
+  });
+
+  it('should transition back to inactive', () => {
+    const initialState = toggleMachine.getInitialSnapshot();
+    const activeState = toggleMachine.transition(initialState, { type: 'TOGGLE' });
+    const inactiveState = toggleMachine.transition(activeState, { type: 'TOGGLE' });
+    
+    expect(inactiveState.value).toBe('inactive');
+  });
+});
+```
+
+## Testing with Actors
+
+For testing actors that involve side effects, use the `createActor()` function:
+
+```typescript
+import { createMachine, createActor, assign } from 'xstate';
+import { waitFor } from 'xstate/actors';
+
+const counterMachine = createMachine({
+  id: 'counter',
+  initial: 'active',
+  context: { count: 0 },
+  states: {
+    active: {
+      on: {
+        INCREMENT: {
+          actions: assign({ count: ({ context }) => context.count + 1 })
+        },
+        DONE: 'finished'
+      }
+    },
+    finished: {
+      type: 'final'
+    }
+  }
+});
+
+describe('counter actor', () => {
+  it('should increment count', () => {
+    const actor = createActor(counterMachine);
+    actor.start();
+
+    actor.send({ type: 'INCREMENT' });
+    actor.send({ type: 'INCREMENT' });
+
+    expect(actor.getSnapshot().context.count).toBe(2);
+  });
+
+  it('should reach final state', async () => {
+    const actor = createActor(counterMachine);
+    actor.start();
+
+    actor.send({ type: 'DONE' });
+
+    await waitFor(actor, (snapshot) => snapshot.status === 'done');
+
+    expect(actor.getSnapshot().value).toBe('finished');
+  });
+});
+```
+
+## Testing Actions
+
+Test that actions are executed with the correct arguments:
+
+```typescript
+import { vi } from 'vitest';
+import { createMachine, createActor } from 'xstate';
+
+describe('actions', () => {
+  it('should call action with correct context and event', () => {
+    const mockAction = vi.fn();
+
+    const machine = createMachine({
+      initial: 'idle',
+      context: { value: 0 },
+      states: {
+        idle: {
+          on: {
+            EVENT: {
+              actions: mockAction
+            }
+          }
+        }
+      }
+    });
+
+    const actor = createActor(machine);
+    actor.start();
+
+    actor.send({ type: 'EVENT', data: 'test' });
+
+    expect(mockAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: { value: 0 },
+        event: { type: 'EVENT', data: 'test' }
+      }),
+      undefined // params
+    );
+  });
+});
+```
+
+## Testing Guards
+
+Test that guards correctly determine transitions:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  context: { count: 0 },
+  states: {
+    idle: {
+      on: {
+        NEXT: [
+          {
+            guard: ({ context }) => context.count >= 5,
+            target: 'finished'
+          },
+          {
+            target: 'idle',
+            actions: assign({ count: ({ context }) => context.count + 1 })
+          }
+        ]
+      }
+    },
+    finished: {}
+  }
+});
+
+describe('guards', () => {
+  it('should stay in idle when count < 5', () => {
+    const actor = createActor(machine);
+    actor.start();
+
+    actor.send({ type: 'NEXT' });
+
+    const snapshot = actor.getSnapshot();
+    expect(snapshot.value).toBe('idle');
+    expect(snapshot.context.count).toBe(1);
+  });
+
+  it('should transition to finished when count >= 5', () => {
+    const actor = createActor(machine.provide({
+      context: { count: 5 }
+    }));
+    actor.start();
+
+    actor.send({ type: 'NEXT' });
+
+    expect(actor.getSnapshot().value).toBe('finished');
+  });
+});
+```
+
+## Testing Invoked Actors
+
+Test machines that invoke child actors:
+
+```typescript
+import { setup, fromPromise } from 'xstate';
+
+const fetchUser = fromPromise(async ({ input }: { input: { userId: string } }) => {
+  return { id: input.userId, name: 'Test User' };
+});
+
+const machine = setup({
+  actors: { fetchUser }
+}).createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: { FETCH: 'loading' }
+    },
+    loading: {
+      invoke: {
+        src: 'fetchUser',
+        input: { userId: '123' },
+        onDone: {
+          target: 'success',
+          actions: assign({ user: ({ event }) => event.output })
+        },
+        onError: 'failure'
+      }
+    },
+    success: {},
+    failure: {}
+  }
+});
+
+describe('invoked actors', () => {
+  it('should load user successfully', async () => {
+    const actor = createActor(machine);
+    actor.start();
+
+    actor.send({ type: 'FETCH' });
+
+    await waitFor(actor, (state) => state.matches('success'));
+
+    const snapshot = actor.getSnapshot();
+    expect(snapshot.context.user).toEqual({ id: '123', name: 'Test User' });
+  });
+});
+```
+
+## Mocking Invoked Services
+
+Replace invoked actors with mocks for testing:
+
+```typescript
+import { setup, fromPromise } from 'xstate';
+
+const machine = setup({
+  actors: {
+    fetchData: fromPromise(async () => {
+      throw new Error('Real implementation');
+    })
+  }
+}).createMachine({
+  initial: 'loading',
+  states: {
+    loading: {
+      invoke: {
+        src: 'fetchData',
+        onDone: 'success',
+        onError: 'failure'
+      }
+    },
+    success: {},
+    failure: {}
+  }
+});
+
+it('should handle mock data', async () => {
+  const mockMachine = machine.provide({
+    actors: {
+      fetchData: fromPromise(async () => ({ data: 'mocked' }))
+    }
+  });
+
+  const actor = createActor(mockMachine);
+  actor.start();
+
+  await waitFor(actor, (state) => state.matches('success'));
+  expect(actor.getSnapshot().value).toBe('success');
+});
+```
+
+## Using SimulatedClock
+
+Test delayed transitions and timeouts with `SimulatedClock` from `types.ts:1804`:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+import { SimulatedClock } from 'xstate/actors';
+
+const machine = createMachine({
+  initial: 'waiting',
+  states: {
+    waiting: {
+      after: {
+        1000: 'done'
+      }
+    },
+    done: {}
+  }
+});
+
+it('should transition after delay', () => {
+  const clock = new SimulatedClock();
+  const actor = createActor(machine, { clock });
+  actor.start();
+
+  expect(actor.getSnapshot().value).toBe('waiting');
+
+  clock.increment(999);
+  expect(actor.getSnapshot().value).toBe('waiting');
+
+  clock.increment(1);
+  expect(actor.getSnapshot().value).toBe('done');
+});
+```
+
+## Model-Based Testing
+
+XState provides model-based testing utilities through the graph module (`graph/index.ts:1-15`):
+
+```typescript
+import { createTestModel } from 'xstate/graph';
+
+const toggleMachine = createMachine({
+  initial: 'inactive',
+  states: {
+    inactive: {
+      on: { TOGGLE: 'active' },
+      meta: { test: async () => {
+        // Test that UI shows inactive state
+      }}
+    },
+    active: {
+      on: { TOGGLE: 'inactive' },
+      meta: { test: async () => {
+        // Test that UI shows active state
+      }}
+    }
+  }
+});
+
+const testModel = createTestModel(toggleMachine);
+
+describe('toggle model', () => {
+  testModel.getShortestPaths().forEach((path) => {
+    it(path.description, async () => {
+      await path.test({
+        states: {
+          inactive: async () => {
+            expect(screen.getByText('Inactive')).toBeInTheDocument();
+          },
+          active: async () => {
+            expect(screen.getByText('Active')).toBeInTheDocument();
+          }
+        },
+        events: {
+          TOGGLE: async () => {
+            fireEvent.click(screen.getByRole('button'));
+          }
+        }
+      });
+    });
+  });
+});
+```
+
+<Note>
+Model-based testing automatically generates test paths through your state machine, ensuring comprehensive coverage.
+</Note>
+
+## Integration Testing
+
+Test machines in realistic scenarios:
+
+```typescript
+import { setup, fromPromise } from 'xstate';
+import { render, screen, waitFor } from '@testing-library/react';
+import { createActor } from 'xstate';
+
+const fetchMachine = setup({
+  actors: {
+    fetchUser: fromPromise(async ({ input }: { input: { id: string } }) => {
+      const res = await fetch(`/api/users/${input.id}`);
+      return res.json();
+    })
+  }
+}).createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: { FETCH: 'loading' }
+    },
+    loading: {
+      invoke: {
+        src: 'fetchUser',
+        input: ({ event }) => ({ id: event.userId }),
+        onDone: { target: 'success', actions: assign({ data: ({ event }) => event.output }) },
+        onError: { target: 'failure', actions: assign({ error: ({ event }) => event.error }) }
+      }
+    },
+    success: {},
+    failure: {}
+  }
+});
+
+it('full integration test', async () => {
+  const actor = createActor(fetchMachine);
+  actor.start();
+
+  actor.send({ type: 'FETCH', userId: '1' });
+
+  await waitFor(() => {
+    expect(actor.getSnapshot().matches('success')).toBe(true);
+  });
+
+  expect(actor.getSnapshot().context.data).toBeDefined();
+});
+```
+
+## Snapshot Testing
+
+Test the shape of snapshots:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  context: { count: 0 },
+  states: {
+    idle: {
+      on: {
+        START: 'active'
+      }
+    },
+    active: {}
+  }
+});
+
+it('matches snapshot', () => {
+  const actor = createActor(machine);
+  actor.start();
+
+  expect(actor.getSnapshot()).toMatchSnapshot();
+});
+```
+
+## Best Practices
+
+<Accordion title="Test pure logic first">
+Test the machine's `transition()` method before testing actors with side effects. This isolates logic from implementation details.
+</Accordion>
+
+<Accordion title="Use provided machines for mocking">
+Use `.provide()` to replace implementations for testing rather than modifying the original machine.
+</Accordion>
+
+<Accordion title="Test state matching">
+Use `.matches()` to test hierarchical and parallel states:
+```typescript
+expect(snapshot.matches({ form: 'editing' })).toBe(true);
+```
+</Accordion>
+
+<Accordion title="Leverage model-based testing">
+For complex machines, use model-based testing to automatically generate comprehensive test coverage.
+</Accordion>
+
+<Tip>
+Always clean up actors in tests: `actor.stop()` or use a cleanup function in your test framework.
+</Tip>

@@ -1,0 +1,410 @@
+---
+title: State (MachineSnapshot)
+description: API reference for State (MachineSnapshot) objects
+---
+
+A `MachineSnapshot` (also called `State`) represents the state of a state machine actor at a specific point in time. It contains the current state value, context, and other metadata.
+
+State snapshots are immutable and represent a point-in-time snapshot of the machine's state.
+
+## Type
+
+```typescript
+type MachineSnapshot<
+  TContext extends MachineContext,
+  TEvent extends EventObject,
+  TChildren extends Record<string, AnyActorRef | undefined>,
+  TStateValue extends StateValue,
+  TTag extends string,
+  TOutput,
+  TMeta extends MetaObject,
+  TStateSchema extends StateSchema
+> = 
+  | ActiveMachineSnapshot<...>
+  | DoneMachineSnapshot<...>
+  | ErrorMachineSnapshot<...>
+  | StoppedMachineSnapshot<...>
+```
+
+## Properties
+
+<ResponseField name="value" type="StateValue">
+  The current state value.
+
+  This represents the active state nodes in the state machine:
+  - For atomic state nodes, it is a string (e.g., `"idle"`)
+  - For compound parent state nodes, it is an object (e.g., `{ red: "walk" }`)
+
+  ```ts
+  // Atomic state
+  snapshot.value; // => "loading"
+
+  // Nested states
+  snapshot.value; // => { red: "walk" }
+  ```
+</ResponseField>
+
+<ResponseField name="status" type="'active' | 'done' | 'error' | 'stopped'">
+  The current status of the snapshot.
+
+  - `'active'` - The machine is running normally
+  - `'done'` - The machine has reached a top-level final state
+  - `'error'` - The machine encountered an error
+  - `'stopped'` - The machine has been stopped
+</ResponseField>
+
+<ResponseField name="context" type="TContext">
+  The current context (extended state) of the machine.
+
+  ```ts
+  snapshot.context; // => { count: 42, user: {...} }
+  ```
+</ResponseField>
+
+<ResponseField name="output" type="TOutput | undefined">
+  The output data produced when the machine reaches a top-level final state.
+
+  Only available when `status` is `'done'`.
+
+  ```ts
+  if (snapshot.status === 'done') {
+    console.log(snapshot.output);
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="error" type="unknown">
+  The error that caused the machine to enter an error state.
+
+  Only available when `status` is `'error'`.
+
+  ```ts
+  if (snapshot.status === 'error') {
+    console.error(snapshot.error);
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="tags" type="Set<string>">
+  The tags of the active state nodes that represent the current state value.
+
+  ```ts
+  if (snapshot.tags.has('loading')) {
+    // Show loading indicator
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="machine" type="StateMachine">
+  The state machine that produced this state snapshot.
+</ResponseField>
+
+<ResponseField name="children" type="Record<string, ActorRef>">
+  An object mapping actor IDs to spawned/invoked actors.
+
+  ```ts
+  const childActor = snapshot.children.myChild;
+  ```
+</ResponseField>
+
+<ResponseField name="historyValue" type="HistoryValue">
+  The history value of the state, used for history states.
+</ResponseField>
+
+## Methods
+
+<ResponseField name="matches" type="(stateValue: StateValue) => boolean">
+  Determines whether the current state value is a subset of the given partial state value.
+
+  ```ts
+  if (snapshot.matches('loading')) {
+    // In the 'loading' state
+  }
+
+  if (snapshot.matches({ form: 'valid' })) {
+    // In the 'form.valid' state
+  }
+  ```
+
+  **Parameters:**
+  - `stateValue` - The state value to match against
+
+  **Returns:** `true` if the current state matches, `false` otherwise
+</ResponseField>
+
+<ResponseField name="hasTag" type="(tag: string) => boolean">
+  Determines whether the current state has a specific tag.
+
+  ```ts
+  if (snapshot.hasTag('loading')) {
+    // Current state is tagged with 'loading'
+  }
+  ```
+
+  **Parameters:**
+  - `tag` - The tag to check for
+
+  **Returns:** `true` if any active state node has the tag, `false` otherwise
+</ResponseField>
+
+<ResponseField name="can" type="(event: Event) => boolean">
+  Determines whether sending the event will cause a non-forbidden transition to be selected.
+
+  ```ts
+  if (snapshot.can({ type: 'SUBMIT' })) {
+    // The SUBMIT event can be handled
+  }
+  ```
+
+  **Parameters:**
+  - `event` - The event to test
+
+  **Returns:** `true` if the event will cause a transition, `false` otherwise
+</ResponseField>
+
+<ResponseField name="getMeta" type="() => Record<string, any>">
+  Returns the meta data of all active state nodes.
+
+  ```ts
+  const meta = snapshot.getMeta();
+  // => { 'loading': { message: 'Loading...' } }
+  ```
+
+  **Returns:** An object mapping state node IDs to their meta data
+</ResponseField>
+
+<ResponseField name="toJSON" type="() => object">
+  Returns a JSON-serializable representation of the snapshot.
+
+  ```ts
+  const json = snapshot.toJSON();
+  ```
+
+  **Returns:** A plain object representation of the snapshot
+</ResponseField>
+
+## Examples
+
+### Checking state values
+
+```ts
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: { START: 'running' }
+    },
+    running: {
+      on: { STOP: 'idle' }
+    }
+  }
+});
+
+const actor = createActor(machine);
+actor.start();
+
+const snapshot = actor.getSnapshot();
+
+if (snapshot.matches('idle')) {
+  console.log('Currently idle');
+}
+
+console.log(snapshot.value); // 'idle'
+```
+
+### Using context
+
+```ts
+import { createMachine, createActor, assign } from 'xstate';
+
+const counterMachine = createMachine({
+  context: { count: 0 },
+  initial: 'active',
+  states: {
+    active: {
+      on: {
+        INCREMENT: {
+          actions: assign({
+            count: ({ context }) => context.count + 1
+          })
+        }
+      }
+    }
+  }
+});
+
+const actor = createActor(counterMachine);
+actor.start();
+
+actor.send({ type: 'INCREMENT' });
+
+const snapshot = actor.getSnapshot();
+console.log(snapshot.context.count); // 1
+```
+
+### Using tags
+
+```ts
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'loading',
+  states: {
+    loading: {
+      tags: ['busy'],
+      on: { SUCCESS: 'success' }
+    },
+    success: {
+      tags: ['complete']
+    }
+  }
+});
+
+const actor = createActor(machine);
+actor.start();
+
+const snapshot = actor.getSnapshot();
+
+if (snapshot.hasTag('busy')) {
+  console.log('Machine is busy');
+}
+
+console.log([...snapshot.tags]); // ['busy']
+```
+
+### Checking if events can be handled
+
+```ts
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: { START: 'running' }
+    },
+    running: {
+      on: { STOP: 'idle' }
+    }
+  }
+});
+
+const actor = createActor(machine);
+actor.start();
+
+const snapshot = actor.getSnapshot();
+
+if (snapshot.can({ type: 'START' })) {
+  console.log('Can send START event');
+  actor.send({ type: 'START' });
+}
+
+if (!snapshot.can({ type: 'STOP' })) {
+  console.log('Cannot send STOP event in current state');
+}
+```
+
+### Working with nested states
+
+```ts
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'auth',
+  states: {
+    auth: {
+      initial: 'loggedOut',
+      states: {
+        loggedOut: {
+          on: { LOGIN: 'loggedIn' }
+        },
+        loggedIn: {}
+      }
+    }
+  }
+});
+
+const actor = createActor(machine);
+actor.start();
+
+const snapshot = actor.getSnapshot();
+
+console.log(snapshot.value); // { auth: 'loggedOut' }
+
+if (snapshot.matches({ auth: 'loggedOut' })) {
+  console.log('User is logged out');
+}
+```
+
+### Accessing child actors
+
+```ts
+import { createMachine, createActor, fromPromise } from 'xstate';
+
+const childLogic = fromPromise(async () => {
+  return { data: 'result' };
+});
+
+const machine = createMachine({
+  initial: 'loading',
+  states: {
+    loading: {
+      invoke: {
+        id: 'dataFetcher',
+        src: childLogic,
+        onDone: 'success'
+      }
+    },
+    success: {}
+  }
+});
+
+const actor = createActor(machine);
+actor.start();
+
+const snapshot = actor.getSnapshot();
+const childActor = snapshot.children.dataFetcher;
+
+if (childActor) {
+  console.log('Child actor exists:', childActor.id);
+}
+```
+
+### Getting meta data
+
+```ts
+import { createMachine, createActor } from 'xstate';
+
+const machine = createMachine({
+  initial: 'loading',
+  states: {
+    loading: {
+      meta: {
+        message: 'Loading data...'
+      },
+      on: { SUCCESS: 'success' }
+    },
+    success: {
+      meta: {
+        message: 'Data loaded successfully'
+      }
+    }
+  }
+});
+
+const actor = createActor(machine);
+actor.start();
+
+const snapshot = actor.getSnapshot();
+const meta = snapshot.getMeta();
+
+console.log(meta); // { loading: { message: 'Loading data...' } }
+```
+
+## See also
+
+- [createActor()](/api/create-actor) - Create actors that produce snapshots
+- [Actor.getSnapshot()](/api/actor#getsnapshot) - Get the current snapshot
+- [State machines guide](/state-machines-and-statecharts)

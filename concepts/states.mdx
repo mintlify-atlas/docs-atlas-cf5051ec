@@ -1,0 +1,361 @@
+---
+title: States
+description: Understanding states in XState state machines
+---
+
+## What is a state?
+
+A state represents a specific mode or condition that your application can be in at any given time. In XState, a machine can only be in one state at a time (unless using parallel states).
+
+## Defining states
+
+States are defined in the `states` property of a machine configuration:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  id: 'door',
+  initial: 'closed',
+  states: {
+    closed: {
+      on: {
+        OPEN: 'opened'
+      }
+    },
+    opened: {
+      on: {
+        CLOSE: 'closed'
+      }
+    }
+  }
+});
+```
+
+## Initial state
+
+Every state machine must have an initial state, specified with the `initial` property:
+
+```typescript
+const machine = createMachine({
+  initial: 'idle', // Required
+  states: {
+    idle: {},
+    loading: {},
+    success: {},
+    error: {}
+  }
+});
+```
+
+<Warning>
+Forgetting to specify an `initial` state will cause an error.
+</Warning>
+
+## State values
+
+The current state is represented by a state value, which can be:
+
+### Simple state value
+
+A string representing the current state:
+
+```typescript
+const snapshot = actor.getSnapshot();
+console.log(snapshot.value); // 'idle'
+```
+
+### Nested state value
+
+An object for hierarchical states:
+
+```typescript
+const machine = createMachine({
+  initial: 'loading',
+  states: {
+    loading: {
+      initial: 'pending',
+      states: {
+        pending: {},
+        complete: {}
+      }
+    },
+    loaded: {}
+  }
+});
+
+// State value: { loading: 'pending' }
+```
+
+### Parallel state value
+
+An object with multiple active states:
+
+```typescript
+const machine = createMachine({
+  type: 'parallel',
+  states: {
+    mode: {
+      initial: 'light',
+      states: { light: {}, dark: {} }
+    },
+    size: {
+      initial: 'medium',
+      states: { small: {}, medium: {}, large: {} }
+    }
+  }
+});
+
+// State value: { mode: 'light', size: 'medium' }
+```
+
+## State node properties
+
+### Entry actions
+
+Actions executed when entering a state:
+
+```typescript
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {},
+    loading: {
+      entry: () => console.log('Started loading')
+    }
+  }
+});
+```
+
+### Exit actions
+
+Actions executed when leaving a state:
+
+```typescript
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    loading: {
+      entry: () => console.log('Started loading'),
+      exit: () => console.log('Stopped loading')
+    },
+    success: {}
+  }
+});
+```
+
+### Description
+
+A description of what the state represents:
+
+```typescript
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      description: 'Waiting for user input'
+    },
+    loading: {
+      description: 'Fetching data from API'
+    }
+  }
+});
+```
+
+### Tags
+
+Tags for categorizing states:
+
+```typescript
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      tags: ['visible']
+    },
+    loading: {
+      tags: ['visible', 'pending']
+    },
+    error: {
+      tags: ['visible', 'failed']
+    }
+  }
+});
+
+const snapshot = actor.getSnapshot();
+if (snapshot.hasTag('pending')) {
+  console.log('Operation in progress');
+}
+```
+
+## Final states
+
+Final states indicate that a state machine has completed:
+
+```typescript
+const machine = createMachine({
+  initial: 'active',
+  states: {
+    active: {
+      on: {
+        COMPLETE: 'done'
+      }
+    },
+    done: {
+      type: 'final'
+    }
+  }
+});
+
+const actor = createActor(machine);
+actor.start();
+
+console.log(actor.getSnapshot().status); // 'active'
+
+actor.send({ type: 'COMPLETE' });
+console.log(actor.getSnapshot().status); // 'done'
+```
+
+<Note>
+When a state machine reaches a final state, it automatically stops and cannot receive more events.
+</Note>
+
+## Checking states
+
+### Using matches()
+
+Check if the current state matches a value:
+
+```typescript
+const snapshot = actor.getSnapshot();
+
+if (snapshot.matches('loading')) {
+  console.log('Currently loading');
+}
+
+// For nested states
+if (snapshot.matches({ loading: 'pending' })) {
+  console.log('Loading is pending');
+}
+```
+
+### Using hasTag()
+
+Check if the current state has a tag:
+
+```typescript
+if (snapshot.hasTag('pending')) {
+  // Show loading spinner
+}
+```
+
+### Using state value
+
+Directly access the state value:
+
+```typescript
+const value = snapshot.value;
+
+switch (value) {
+  case 'idle':
+    console.log('Ready');
+    break;
+  case 'loading':
+    console.log('Loading...');
+    break;
+  case 'success':
+    console.log('Success!');
+    break;
+}
+```
+
+## Meta data
+
+Attach metadata to states:
+
+```typescript
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      meta: {
+        message: 'Waiting for input'
+      }
+    },
+    loading: {
+      meta: {
+        message: 'Loading data',
+        progress: 0
+      }
+    }
+  }
+});
+
+const snapshot = actor.getSnapshot();
+const meta = snapshot.getMeta();
+console.log(meta['idle']?.message); // 'Waiting for input'
+```
+
+## State transitions
+
+Define how states transition in response to events:
+
+```typescript
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        FETCH: 'loading'
+      }
+    },
+    loading: {
+      on: {
+        SUCCESS: 'success',
+        ERROR: 'error'
+      }
+    },
+    success: {
+      on: {
+        RETRY: 'loading'
+      }
+    },
+    error: {
+      on: {
+        RETRY: 'loading'
+      }
+    }
+  }
+});
+```
+
+## Best practices
+
+<Tip>
+Use descriptive state names that clearly indicate what the system is doing, like `loadingUserData` instead of `loading`.
+</Tip>
+
+<Tip>
+Keep states at the same level of abstraction. Don't mix high-level states like `authenticated` with low-level states like `buttonPressed`.
+</Tip>
+
+<Tip>
+Use tags to categorize states that share common behaviors or UI requirements.
+</Tip>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Transitions" icon="arrow-right" href="/concepts/transitions">
+    Learn about state transitions
+  </Card>
+  <Card title="Context" icon="database" href="/concepts/context">
+    Add data to your state machines
+  </Card>
+  <Card title="Hierarchical states" icon="sitemap" href="/guides/parent-child">
+    Organize states hierarchically
+  </Card>
+  <Card title="Parallel states" icon="layer-group" href="/guides/parallel-states">
+    Run multiple states simultaneously
+  </Card>
+</CardGroup>

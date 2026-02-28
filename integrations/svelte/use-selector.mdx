@@ -1,0 +1,419 @@
+---
+title: 'useSelector'
+description: 'Subscribe to derived values from XState actors in Svelte'
+icon: 'filter'
+---
+
+## Overview
+
+The `useSelector` function subscribes to an actor and returns a derived value from its snapshot as a Svelte readable store. It only triggers updates when the selected value changes.
+
+```typescript
+function useSelector<TActor, T>(
+  actor: TActor,
+  selector: (snapshot: SnapshotFrom<TActor>) => T,
+  compare?: (a: T, b: T) => boolean
+): Readable<T>
+```
+
+## Basic Usage
+
+<CodeGroup>
+
+```svelte Select Context Value
+<script>
+  import { useActor, useSelector } from '@xstate/svelte';
+  import { createMachine } from 'xstate';
+
+  const machine = createMachine({
+    context: { count: 0, name: 'Alice' },
+    // ...
+  });
+
+  const { actorRef } = useActor(machine);
+
+  // Only updates when count changes
+  const count = useSelector(actorRef, (state) => state.context.count);
+
+  // Only updates when name changes
+  const name = useSelector(actorRef, (state) => state.context.name);
+</script>
+
+<div>
+  <p>Count: {$count}</p>
+  <p>Name: {$name}</p>
+</div>
+```
+
+```svelte Select State Value
+<script>
+  import { useActor, useSelector } from '@xstate/svelte';
+  import { createMachine } from 'xstate';
+
+  const machine = createMachine({
+    initial: 'idle',
+    states: {
+      idle: { on: { FETCH: 'loading' } },
+      loading: { on: { RESOLVE: 'success', REJECT: 'error' } },
+      success: {},
+      error: {}
+    }
+  });
+
+  const { actorRef } = useActor(machine);
+
+  // Returns boolean for state match
+  const isLoading = useSelector(
+    actorRef,
+    (state) => state.matches('loading')
+  );
+
+  const isSuccess = useSelector(
+    actorRef,
+    (state) => state.matches('success')
+  );
+</script>
+
+<div>
+  {#if $isLoading}
+    <p>Loading...</p>
+  {:else if $isSuccess}
+    <p>Success!</p>
+  {/if}
+</div>
+```
+
+```svelte Complex Selection
+<script>
+  import { useActor, useSelector } from '@xstate/svelte';
+  import { myMachine } from './myMachine';
+
+  const { actorRef } = useActor(myMachine);
+
+  // Select and transform data
+  const activeItems = useSelector(actorRef, (state) => {
+    return state.context.items.filter(item => item.active);
+  });
+
+  // Derive computed values
+  const totalPrice = useSelector(actorRef, (state) => {
+    return state.context.cart.reduce(
+      (sum, item) => sum + item.price * item.quantity,
+      0
+    );
+  });
+</script>
+
+<div>
+  <p>Active items: {$activeItems.length}</p>
+  <p>Total: ${$totalPrice.toFixed(2)}</p>
+</div>
+```
+
+</CodeGroup>
+
+## Custom Comparison
+
+By default, `useSelector` uses strict equality (`===`) to compare values. Provide a custom comparison function for complex objects:
+
+<CodeGroup>
+
+```svelte Shallow Comparison
+<script>
+  import { useActor, useSelector } from '@xstate/svelte';
+  import { myMachine } from './myMachine';
+
+  const { actorRef } = useActor(myMachine);
+
+  function shallowEqual(a, b) {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    
+    const keysA = Object.keys(a);
+    const keysB = Object.keys(b);
+    
+    if (keysA.length !== keysB.length) return false;
+    
+    return keysA.every(key => a[key] === b[key]);
+  }
+
+  const user = useSelector(
+    actorRef,
+    (state) => state.context.user,
+    shallowEqual
+  );
+</script>
+```
+
+```svelte Deep Comparison
+<script>
+  import { useActor, useSelector } from '@xstate/svelte';
+  import { isEqual } from 'lodash';
+  import { myMachine } from './myMachine';
+
+  const { actorRef } = useActor(myMachine);
+
+  // Use deep equality check
+  const config = useSelector(
+    actorRef,
+    (state) => state.context.config,
+    isEqual
+  );
+</script>
+```
+
+```svelte Array Comparison
+<script>
+  import { useActor, useSelector } from '@xstate/svelte';
+  import { myMachine } from './myMachine';
+
+  const { actorRef } = useActor(myMachine);
+
+  function arrayEqual(a, b) {
+    if (a.length !== b.length) return false;
+    return a.every((item, index) => item === b[index]);
+  }
+
+  const ids = useSelector(
+    actorRef,
+    (state) => state.context.selectedIds,
+    arrayEqual
+  );
+</script>
+```
+
+</CodeGroup>
+
+## Performance Optimization
+
+Use `useSelector` to optimize rendering by only subscribing to specific parts of state:
+
+```svelte
+<script>
+  import { useActor, useSelector } from '@xstate/svelte';
+  import { largeMachine } from './largeMachine';
+
+  const { actorRef } = useActor(largeMachine);
+
+  // Component only re-renders when username changes,
+  // not when other context values change
+  const username = useSelector(
+    actorRef,
+    (state) => state.context.user.name
+  );
+
+  // Component only re-renders when this specific state is active
+  const isEditMode = useSelector(
+    actorRef,
+    (state) => state.matches({ editing: 'user' })
+  );
+</script>
+
+<div>
+  <h1>{$username}</h1>
+  {#if $isEditMode}
+    <form>
+      <!-- Edit form -->
+    </form>
+  {/if}
+</div>
+```
+
+## Multiple Selectors
+
+Create multiple selectors for different values:
+
+```svelte
+<script>
+  import { useActor, useSelector } from '@xstate/svelte';
+  import { dashboardMachine } from './dashboardMachine';
+
+  const { actorRef, send } = useActor(dashboardMachine);
+
+  const userName = useSelector(
+    actorRef,
+    (state) => state.context.user.name
+  );
+
+  const notifications = useSelector(
+    actorRef,
+    (state) => state.context.notifications
+  );
+
+  const unreadCount = useSelector(
+    actorRef,
+    (state) => state.context.notifications.filter(n => !n.read).length
+  );
+
+  const currentPage = useSelector(
+    actorRef,
+    (state) => state.value
+  );
+</script>
+
+<div>
+  <header>
+    <span>{$userName}</span>
+    {#if $unreadCount > 0}
+      <span>{$unreadCount} new notifications</span>
+    {/if}
+  </header>
+  <main>
+    <p>Current page: {$currentPage}</p>
+  </main>
+</div>
+```
+
+## Reactive Statements
+
+Combine selectors with Svelte's reactive statements:
+
+```svelte
+<script>
+  import { useActor, useSelector } from '@xstate/svelte';
+  import { myMachine } from './myMachine';
+
+  const { actorRef } = useActor(myMachine);
+
+  const items = useSelector(
+    actorRef,
+    (state) => state.context.items
+  );
+
+  // Reactive derived values
+  $: sortedItems = [...$items].sort((a, b) => a.name.localeCompare(b.name));
+  $: itemCount = $items.length;
+  $: hasItems = itemCount > 0;
+</script>
+
+<div>
+  {#if hasItems}
+    <p>Total items: {itemCount}</p>
+    <ul>
+      {#each sortedItems as item}
+        <li>{item.name}</li>
+      {/each}
+    </ul>
+  {:else}
+    <p>No items</p>
+  {/if}
+</div>
+```
+
+## Selecting from Spawned Actors
+
+Use `useSelector` with actors spawned from a parent machine:
+
+```svelte
+<script>
+  import { useActor, useSelector } from '@xstate/svelte';
+  import { parentMachine } from './parentMachine';
+
+  const { actorRef: parent } = useActor(parentMachine);
+
+  // Get spawned child actor
+  const childActor = useSelector(
+    parent,
+    (state) => state.context.childActor
+  );
+
+  // Select from child if it exists
+  $: childValue = $childActor?.getSnapshot().context.value ?? null;
+</script>
+
+<div>
+  {#if $childActor}
+    <p>Child value: {childValue}</p>
+  {/if}
+</div>
+```
+
+## Manual Store Subscription
+
+Since `useSelector` returns a Svelte store, you can subscribe manually:
+
+```svelte
+<script>
+  import { useActor, useSelector } from '@xstate/svelte';
+  import { onMount } from 'svelte';
+  import { myMachine } from './myMachine';
+
+  const { actorRef } = useActor(myMachine);
+  const value = useSelector(actorRef, (state) => state.context.value);
+
+  onMount(() => {
+    // Manual subscription
+    const unsubscribe = value.subscribe((val) => {
+      console.log('Value changed:', val);
+    });
+
+    return unsubscribe;
+  });
+</script>
+```
+
+## TypeScript
+
+The selector function is fully typed:
+
+```typescript
+import { setup } from 'xstate';
+import { useActor, useSelector } from '@xstate/svelte';
+import type { Readable } from 'svelte/store';
+
+interface User {
+  id: string;
+  name: string;
+  email: string;
+}
+
+const machine = setup({
+  types: {
+    context: {} as {
+      user: User;
+      count: number;
+    }
+  }
+}).createMachine({
+  context: {
+    user: { id: '1', name: 'Alice', email: 'alice@example.com' },
+    count: 0
+  }
+});
+
+const { actorRef } = useActor(machine);
+
+// TypeScript infers the return type
+const userName: Readable<string> = useSelector(
+  actorRef,
+  (state) => state.context.user.name
+);
+
+const userEmail: Readable<string> = useSelector(
+  actorRef,
+  (state) => state.context.user.email
+);
+```
+
+## Implementation Details
+
+The `useSelector` function:
+
+1. Gets the initial selected value from the actor's current snapshot
+2. Creates a Svelte readable store with the selected value
+3. Subscribes to actor changes in the store's start function
+4. Calls the selector on each new snapshot
+5. Compares the new selected value with the previous using the comparison function
+6. Only updates the store when the comparison returns `false`
+7. Automatically unsubscribes when the store has no subscribers
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="useActor" icon="play" href="/integrations/svelte/use-actor">
+    Create and manage actors with reactive stores
+  </Card>
+  <Card title="Svelte Integration" icon="code" href="/integrations/svelte/overview">
+    Back to Svelte integration overview
+  </Card>
+</CardGroup>

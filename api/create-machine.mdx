@@ -1,0 +1,235 @@
+---
+title: createMachine
+description: API reference for the createMachine function
+---
+
+Creates a state machine (statechart) with the given configuration.
+
+The state machine represents the pure logic of a state machine actor.
+
+## Signature
+
+```typescript
+function createMachine<
+  TContext extends MachineContext,
+  TEvent extends AnyEventObject,
+  TActor extends ProvidedActor,
+  TAction extends ParameterizedObject,
+  TGuard extends ParameterizedObject,
+  TDelay extends string,
+  TTag extends string,
+  TInput,
+  TOutput extends NonReducibleUnknown,
+  TEmitted extends EventObject,
+  TMeta extends MetaObject
+>(
+  config: MachineConfig<...>,
+  implementations?: InternalMachineImplementations<...>
+): StateMachine<...>
+```
+
+## Parameters
+
+<ParamField path="config" type="MachineConfig" required>
+  The state machine configuration object.
+
+  <Expandable title="properties">
+    <ParamField path="id" type="string">
+      The unique identifier for the machine. Defaults to `"(machine)"`.
+    </ParamField>
+
+    <ParamField path="initial" type="string">
+      The initial state node key.
+    </ParamField>
+
+    <ParamField path="context" type="TContext | ContextFactory">
+      The initial context (extended state) of the machine. Can be an object or a function that returns the context.
+    </ParamField>
+
+    <ParamField path="states" type="StatesConfig">
+      An object mapping state node keys to their state node configurations.
+    </ParamField>
+
+    <ParamField path="on" type="TransitionsConfig">
+      The mapping of event types to their potential transitions at the root level.
+    </ParamField>
+
+    <ParamField path="types" type="MachineTypes">
+      Type information for the machine. Used for TypeScript type inference.
+    </ParamField>
+
+    <ParamField path="output" type="Mapper | TOutput">
+      The output data produced when the machine reaches a top-level final state.
+    </ParamField>
+
+    <ParamField path="version" type="string">
+      The machine's version identifier.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="implementations" type="InternalMachineImplementations">
+  **DEPRECATED:** Use `setup({ ... })` or `machine.provide({ ... })` to provide machine implementations instead.
+
+  Optional implementations for actions, guards, actors, and delays referenced in the machine config.
+</ParamField>
+
+## Returns
+
+<ResponseField name="machine" type="StateMachine">
+  A `StateMachine` instance representing the state machine logic.
+
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">
+      The machine's identifier.
+    </ResponseField>
+
+    <ResponseField name="states" type="StateNode[]">
+      The machine's state node definitions.
+    </ResponseField>
+
+    <ResponseField name="events" type="EventDescriptor[]">
+      All event descriptors handled by the machine.
+    </ResponseField>
+
+    <ResponseField name="transition" type="function">
+      A pure function that takes a snapshot and event, and returns the next snapshot.
+    </ResponseField>
+
+    <ResponseField name="getInitialSnapshot" type="function">
+      Returns the initial snapshot for the machine.
+    </ResponseField>
+
+    <ResponseField name="provide" type="function">
+      Returns a new machine with provided implementations.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Examples
+
+### Basic state machine
+
+```ts
+import { createMachine } from 'xstate';
+
+const lightMachine = createMachine({
+  id: 'light',
+  initial: 'green',
+  states: {
+    green: {
+      on: {
+        TIMER: { target: 'yellow' }
+      }
+    },
+    yellow: {
+      on: {
+        TIMER: { target: 'red' }
+      }
+    },
+    red: {
+      on: {
+        TIMER: { target: 'green' }
+      }
+    }
+  }
+});
+
+const lightActor = createActor(lightMachine);
+lightActor.start();
+
+lightActor.send({ type: 'TIMER' });
+```
+
+### Machine with context
+
+```ts
+import { createMachine } from 'xstate';
+
+const counterMachine = createMachine({
+  id: 'counter',
+  initial: 'active',
+  context: { count: 0 },
+  states: {
+    active: {
+      on: {
+        INCREMENT: {
+          actions: assign({
+            count: ({ context }) => context.count + 1
+          })
+        },
+        DECREMENT: {
+          actions: assign({
+            count: ({ context }) => context.count - 1
+          })
+        }
+      }
+    }
+  }
+});
+```
+
+### Machine with TypeScript types
+
+```ts
+import { createMachine } from 'xstate';
+
+type Context = { count: number };
+type Events = 
+  | { type: 'INCREMENT' }
+  | { type: 'DECREMENT' };
+
+const machine = createMachine({
+  types: {} as {
+    context: Context;
+    events: Events;
+  },
+  initial: 'active',
+  context: { count: 0 },
+  states: {
+    active: {
+      on: {
+        INCREMENT: {
+          actions: assign({
+            count: ({ context }) => context.count + 1
+          })
+        }
+      }
+    }
+  }
+});
+```
+
+### Machine with final state and output
+
+```ts
+import { createMachine } from 'xstate';
+
+const fetchMachine = createMachine({
+  id: 'fetch',
+  initial: 'idle',
+  context: { data: null },
+  states: {
+    idle: {
+      on: {
+        FETCH: 'loading'
+      }
+    },
+    loading: {
+      on: {
+        SUCCESS: 'success'
+      }
+    },
+    success: {
+      type: 'final'
+    }
+  },
+  output: ({ context }) => context.data
+});
+```
+
+## See also
+
+- [setup()](/api/setup) - Recommended way to create machines with type-safe implementations
+- [createActor()](/api/create-actor) - Create an actor from a machine
+- [State machines guide](/state-machines-and-statecharts)

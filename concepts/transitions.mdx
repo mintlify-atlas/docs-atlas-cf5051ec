@@ -1,0 +1,420 @@
+---
+title: Transitions
+description: Understanding state transitions in XState
+---
+
+## What are transitions?
+
+Transitions define how a state machine moves from one state to another in response to events. They are the edges connecting states in your state machine diagram.
+
+## Basic transitions
+
+Define transitions using the `on` property:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        START: 'running'
+      }
+    },
+    running: {
+      on: {
+        STOP: 'idle'
+      }
+    }
+  }
+});
+```
+
+When the machine is in the `idle` state and receives a `START` event, it transitions to the `running` state.
+
+## Transition targets
+
+### Simple target
+
+A string specifying the target state:
+
+```typescript
+states: {
+  idle: {
+    on: {
+      START: 'running' // Target state
+    }
+  }
+}
+```
+
+### Object notation
+
+More control over the transition:
+
+```typescript
+states: {
+  idle: {
+    on: {
+      START: {
+        target: 'running',
+        actions: () => console.log('Starting!')
+      }
+    }
+  }
+}
+```
+
+### Relative targets
+
+Target sibling or child states:
+
+```typescript
+const machine = createMachine({
+  initial: 'auth',
+  states: {
+    auth: {
+      initial: 'login',
+      states: {
+        login: {
+          on: {
+            SUCCESS: 'dashboard' // Sibling state
+          }
+        },
+        dashboard: {}
+      }
+    }
+  }
+});
+```
+
+### Absolute targets
+
+Target states using absolute paths with dot notation:
+
+```typescript
+const machine = createMachine({
+  id: 'app',
+  initial: 'auth',
+  states: {
+    auth: {
+      initial: 'login',
+      states: {
+        login: {
+          on: {
+            LOGOUT: '#app.auth.login' // Absolute path
+          }
+        }
+      }
+    }
+  }
+});
+```
+
+## Self-transitions
+
+Transition to the same state:
+
+```typescript
+states: {
+  active: {
+    on: {
+      REFRESH: 'active' // Self-transition
+    }
+  }
+}
+```
+
+<Note>
+Self-transitions exit and re-enter the state, executing exit and entry actions.
+</Note>
+
+### Internal transitions
+
+Stay in the same state without exiting:
+
+```typescript
+states: {
+  active: {
+    on: {
+      UPDATE: {
+        actions: 'updateData',
+        // No target = internal transition
+      }
+    }
+  }
+}
+```
+
+## Guarded transitions
+
+Conditional transitions using guards:
+
+```typescript
+import { setup } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isValid: ({ context, event }) => {
+      return event.value > 0;
+    }
+  }
+}).createMachine({
+  initial: 'idle',
+  context: { count: 0 },
+  states: {
+    idle: {
+      on: {
+        INCREMENT: {
+          guard: 'isValid',
+          target: 'counting',
+          actions: ({ context, event }) => {
+            context.count += event.value;
+          }
+        }
+      }
+    },
+    counting: {}
+  }
+});
+```
+
+<Tip>
+When multiple transitions share the same event, guards determine which transition to take.
+</Tip>
+
+## Multiple transitions
+
+Multiple transitions for the same event:
+
+```typescript
+import { setup } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isAdult: ({ event }) => event.age >= 18,
+    isChild: ({ event }) => event.age < 18
+  }
+}).createMachine({
+  initial: 'checking',
+  states: {
+    checking: {
+      on: {
+        CHECK_AGE: [
+          {
+            guard: 'isAdult',
+            target: 'adult'
+          },
+          {
+            guard: 'isChild',
+            target: 'child'
+          }
+        ]
+      }
+    },
+    adult: {},
+    child: {}
+  }
+});
+```
+
+Transitions are evaluated in order. The first transition with a passing guard (or no guard) is taken.
+
+## Eventless transitions
+
+Automatic transitions that occur immediately:
+
+```typescript
+const machine = createMachine({
+  initial: 'start',
+  states: {
+    start: {
+      always: 'end' // Immediately transition to 'end'
+    },
+    end: {}
+  }
+});
+```
+
+With guards:
+
+```typescript
+import { setup } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isComplete: ({ context }) => context.progress >= 100
+  }
+}).createMachine({
+  initial: 'loading',
+  context: { progress: 0 },
+  states: {
+    loading: {
+      always: {
+        guard: 'isComplete',
+        target: 'complete'
+      }
+    },
+    complete: {}
+  }
+});
+```
+
+## Delayed transitions
+
+Transitions that occur after a delay:
+
+```typescript
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        START: 'waiting'
+      }
+    },
+    waiting: {
+      after: {
+        5000: 'timeout' // Transition after 5 seconds
+      }
+    },
+    timeout: {}
+  }
+});
+```
+
+With dynamic delays:
+
+```typescript
+import { setup } from 'xstate';
+
+const machine = setup({
+  delays: {
+    customDelay: ({ context }) => context.delayMs
+  }
+}).createMachine({
+  initial: 'waiting',
+  context: { delayMs: 3000 },
+  states: {
+    waiting: {
+      after: {
+        customDelay: 'done'
+      }
+    },
+    done: {}
+  }
+});
+```
+
+## Transition actions
+
+Execute side effects during transitions:
+
+```typescript
+import { setup, assign } from 'xstate';
+
+const machine = setup({
+  actions: {
+    logTransition: () => console.log('Transitioning'),
+    incrementCount: assign({
+      count: ({ context }) => context.count + 1
+    })
+  }
+}).createMachine({
+  initial: 'idle',
+  context: { count: 0 },
+  states: {
+    idle: {
+      on: {
+        START: {
+          target: 'running',
+          actions: ['logTransition', 'incrementCount']
+        }
+      }
+    },
+    running: {}
+  }
+});
+```
+
+## Wildcard transitions
+
+Handle any event:
+
+```typescript
+states: {
+  active: {
+    on: {
+      '*': {
+        actions: () => console.log('Unknown event received')
+      }
+    }
+  }
+}
+```
+
+<Warning>
+Wildcard transitions match any event not explicitly handled. Use them carefully.
+</Warning>
+
+## Forbidden transitions
+
+Explicitly forbid certain events:
+
+```typescript
+states: {
+  final: {
+    on: {
+      '*': undefined // Forbid all events
+    },
+    type: 'final'
+  }
+}
+```
+
+## Checking possible transitions
+
+Check if an event can be sent:
+
+```typescript
+const snapshot = actor.getSnapshot();
+
+if (snapshot.can({ type: 'START' })) {
+  console.log('Can start');
+  actor.send({ type: 'START' });
+} else {
+  console.log('Cannot start from current state');
+}
+```
+
+## Best practices
+
+<Tip>
+Keep transition logic simple. Complex logic should be in actions or guards.
+</Tip>
+
+<Tip>
+Use descriptive event names that clearly indicate what happened, like `USER_LOGGED_IN` instead of `SUCCESS`.
+</Tip>
+
+<Tip>
+Avoid wildcard transitions unless absolutely necessary. They can make state machines harder to understand.
+</Tip>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Guards" icon="shield" href="/guides/guards">
+    Add conditional logic to transitions
+  </Card>
+  <Card title="Actions" icon="bolt" href="/guides/actions">
+    Execute side effects
+  </Card>
+  <Card title="Events" icon="envelope" href="/concepts/events">
+    Learn about events
+  </Card>
+  <Card title="Delayed events" icon="clock" href="/guides/delayed-events">
+    Work with time-based transitions
+  </Card>
+</CardGroup>

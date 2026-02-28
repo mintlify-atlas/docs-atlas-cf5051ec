@@ -1,0 +1,222 @@
+---
+title: log
+description: API reference for the log action
+---
+
+Logs a value using the actor's logger.
+
+```ts
+import { log } from 'xstate';
+```
+
+## Signature
+
+```ts
+function log<
+  TContext extends MachineContext,
+  TExpressionEvent extends EventObject,
+  TParams extends ParameterizedObject['params'] | undefined,
+  TEvent extends EventObject
+>(
+  value?: ResolvableLogValue<TContext, TExpressionEvent, TParams, TEvent>,
+  label?: string
+): LogAction<TContext, TExpressionEvent, TParams, TEvent>
+```
+
+## Parameters
+
+<ParamField path="value" type="string | LogExpr">
+  The value to log. Can be:
+  - String: static message to log
+  - Function: expression that receives `ActionArgs` and returns a value to log
+  
+  Defaults to a function that returns `{ context, event }`.
+</ParamField>
+
+<ParamField path="label" type="string">
+  Optional label to prefix the logged value.
+</ParamField>
+
+## Returns
+
+<ResponseField name="LogAction" type="LogAction">
+  An action function that logs the value when executed.
+</ResponseField>
+
+## Examples
+
+### Default logging
+
+```ts
+import { createMachine, log } from 'xstate';
+
+const machine = createMachine({
+  on: {
+    EVENT: {
+      actions: log()
+    }
+  }
+});
+
+// Logs: { context: {...}, event: {...} }
+```
+
+### Log static message
+
+```ts
+const machine = createMachine({
+  on: {
+    START: {
+      actions: log('Machine started')
+    }
+  }
+});
+
+// Logs: 'Machine started'
+```
+
+### Log with label
+
+```ts
+const machine = createMachine({
+  on: {
+    UPDATE: {
+      actions: log('Processing update', 'UPDATE_ACTION')
+    }
+  }
+});
+
+// Logs: 'UPDATE_ACTION', 'Processing update'
+```
+
+### Log dynamic value
+
+```ts
+const machine = createMachine({
+  types: {} as {
+    context: { count: number };
+  },
+  context: { count: 0 },
+  on: {
+    INCREMENT: {
+      actions: [
+        assign({
+          count: ({ context }) => context.count + 1
+        }),
+        log(({ context }) => `Count is now: ${context.count + 1}`)
+      ]
+    }
+  }
+});
+```
+
+### Log event data
+
+```ts
+const machine = createMachine({
+  on: {
+    SUBMIT: {
+      actions: log(
+        ({ event }) => ({
+          type: event.type,
+          data: event.data,
+          timestamp: Date.now()
+        }),
+        'Form Submission'
+      )
+    }
+  }
+});
+
+// Logs: 'Form Submission', { type: 'SUBMIT', data: {...}, timestamp: 1234567890 }
+```
+
+### Debug state transitions
+
+```ts
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      entry: log('Entered idle state', 'STATE'),
+      on: {
+        START: 'active'
+      }
+    },
+    active: {
+      entry: log(
+        ({ context, event }) => ({
+          state: 'active',
+          context,
+          triggerEvent: event
+        }),
+        'STATE'
+      )
+    }
+  }
+});
+```
+
+### Conditional logging
+
+```ts
+import { enqueueActions } from 'xstate';
+
+const machine = createMachine({
+  types: {} as {
+    context: { debug: boolean; count: number };
+  },
+  context: { debug: true, count: 0 },
+  on: {
+    INCREMENT: {
+      actions: enqueueActions(({ enqueue, context }) => {
+        enqueue.assign({
+          count: context.count + 1
+        });
+        
+        if (context.debug) {
+          enqueue(log(
+            `Incremented to ${context.count + 1}`,
+            'DEBUG'
+          ));
+        }
+      })
+    }
+  }
+});
+```
+
+### Custom logger
+
+```ts
+import { createActor } from 'xstate';
+
+const machine = createMachine({
+  on: {
+    EVENT: {
+      actions: log('Custom log message')
+    }
+  }
+});
+
+const actor = createActor(machine, {
+  logger: (msg) => {
+    // Custom logging implementation
+    console.log('[CUSTOM]', msg);
+  }
+}).start();
+```
+
+## Notes
+
+<Note>
+  By default, the `log` action uses `console.log`. You can provide a custom logger when creating the actor using the `logger` option.
+</Note>
+
+<Tip>
+  Use `log` actions during development to debug state transitions, context changes, and event handling. Remove or disable them in production if needed.
+</Tip>
+
+<Warning>
+  The `log` action is not imperative and should only be used in machine configurations, not in custom action implementations.
+</Warning>

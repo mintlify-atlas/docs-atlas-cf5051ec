@@ -1,0 +1,305 @@
+---
+title: not()
+description: Higher-order guard that inverts a guard's boolean result
+---
+
+The `not()` function creates a higher-order guard that evaluates to `true` if the guard passed to it evaluates to `false`, and vice versa.
+
+## Signature
+
+```ts
+function not<
+  TContext extends MachineContext,
+  TExpressionEvent extends EventObject,
+  TArg
+>(
+  guard: SingleGuardArg<TContext, TExpressionEvent, unknown, TArg>
+): GuardPredicate<
+  TContext,
+  TExpressionEvent,
+  unknown,
+  NormalizeGuardArg<DoNotInfer<TArg>>
+>;
+```
+
+## Parameters
+
+<ParamField path="guard" type="Guard" required>
+  A guard to invert. Can be:
+  - A named guard string (e.g., `'isValid'`)
+  - A guard object with `type` and optional `params`
+  - An inline guard function
+</ParamField>
+
+## Returns
+
+A guard that returns the opposite boolean value of the provided guard.
+
+## Usage
+
+### Basic Example
+
+```ts
+import { setup, not } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isValid: ({ context }) => context.isValid
+  }
+}).createMachine({
+  context: { isValid: false },
+  on: {
+    SUBMIT: {
+      guard: not('isValid'),
+      actions: () => {
+        console.log('Validation failed - will be executed');
+      }
+    }
+  }
+});
+```
+
+### Inline Guard Negation
+
+```ts
+import { setup, not } from 'xstate';
+
+const machine = setup({}).createMachine({
+  context: {
+    count: 5
+  },
+  on: {
+    PROCESS: {
+      guard: not(({ context }) => context.count > 10),
+      actions: () => {
+        console.log('Count is 10 or less');
+      }
+    }
+  }
+});
+```
+
+### Error Handling
+
+```ts
+import { setup, not } from 'xstate';
+
+const machine = setup({
+  guards: {
+    hasError: ({ context }) => context.error !== null
+  }
+}).createMachine({
+  context: {
+    error: null as Error | null
+  },
+  on: {
+    PROCEED: {
+      guard: not('hasError'),
+      target: 'success',
+      description: 'Only proceed if no error exists'
+    },
+    ERROR: {
+      guard: 'hasError',
+      target: 'failed'
+    }
+  }
+});
+```
+
+### With Guard Parameters
+
+```ts
+import { setup, not } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isGreaterThan: ({ context }, params: { threshold: number }) => {
+      return context.value > params.threshold;
+    }
+  }
+}).createMachine({
+  context: { value: 5 },
+  on: {
+    CHECK: {
+      guard: not({
+        type: 'isGreaterThan',
+        params: { threshold: 10 }
+      }),
+      actions: () => {
+        console.log('Value is not greater than 10');
+      }
+    }
+  }
+});
+```
+
+### Authentication Check
+
+```ts
+import { setup, not } from 'xstate';
+
+const authMachine = setup({
+  guards: {
+    isAuthenticated: ({ context }) => context.user !== null
+  }
+}).createMachine({
+  context: {
+    user: null as { id: string } | null
+  },
+  on: {
+    ACCESS_PUBLIC: {
+      guard: not('isAuthenticated'),
+      target: 'publicPage'
+    },
+    ACCESS_PRIVATE: {
+      guard: 'isAuthenticated',
+      target: 'privatePage'
+    }
+  }
+});
+```
+
+### Combining with Other Guards
+
+```ts
+import { setup, not, and } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isLoading: ({ context }) => context.isLoading,
+    hasData: ({ context }) => context.data !== null
+  }
+}).createMachine({
+  context: {
+    isLoading: false,
+    data: null as string | null
+  },
+  on: {
+    DISPLAY: {
+      guard: and([
+        not('isLoading'),
+        'hasData'
+      ]),
+      actions: 'displayData'
+    }
+  }
+});
+```
+
+### Form Validation
+
+```ts
+import { setup, not, or } from 'xstate';
+
+const formMachine = setup({
+  guards: {
+    isEmpty: ({ context }) => context.value.trim() === '',
+    isSubmitting: ({ context }) => context.isSubmitting
+  }
+}).createMachine({
+  context: {
+    value: '',
+    isSubmitting: false
+  },
+  on: {
+    SUBMIT: {
+      guard: not(or(['isEmpty', 'isSubmitting'])),
+      actions: 'submitForm'
+    }
+  }
+});
+```
+
+## Behavior
+
+- **Boolean inversion**: Returns `true` if guard returns `false`, and `false` if guard returns `true`
+- **Single guard**: Only accepts one guard argument (unlike `and` and `or`)
+- **Type preservation**: Maintains the original guard's type information
+
+## Common Patterns
+
+### Conditional Transitions
+
+```ts
+import { setup, not } from 'xstate';
+
+const machine = setup({
+  guards: {
+    canProceed: ({ context }) => {
+      return context.validated && context.approved;
+    }
+  }
+}).createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        START: [
+          {
+            guard: 'canProceed',
+            target: 'processing'
+          },
+          {
+            guard: not('canProceed'),
+            target: 'blocked'
+          }
+        ]
+      }
+    },
+    processing: {},
+    blocked: {}
+  }
+});
+```
+
+### Availability Check
+
+```ts
+import { setup, not } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isBusy: ({ context }) => context.activeRequests > 0
+  }
+}).createMachine({
+  on: {
+    NEW_REQUEST: {
+      guard: not('isBusy'),
+      actions: 'processRequest'
+    }
+  }
+});
+```
+
+## Type Safety
+
+```ts
+type Context = { isEnabled: boolean; count: number };
+type Event = { type: 'TOGGLE' };
+
+const machine = setup({
+  types: {} as {
+    context: Context;
+    events: Event;
+  },
+  guards: {
+    isEnabled: ({ context }) => context.isEnabled
+  }
+}).createMachine({
+  on: {
+    TOGGLE: {
+      guard: not('isEnabled'),
+      actions: ({ context }) => {
+        // TypeScript knows context shape
+        console.log(context.count);
+      }
+    }
+  }
+});
+```
+
+## See Also
+
+- [and](/api/guards/and) - Logical AND for guards
+- [or](/api/guards/or) - Logical OR for guards
+- [Guards Overview](/api/guards/overview) - Introduction to guards

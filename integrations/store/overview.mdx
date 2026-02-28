@@ -1,0 +1,191 @@
+---
+title: XState Store Overview
+description: Lightweight state management with XState Store
+---
+
+XState Store is a simple, framework-agnostic state management library that provides reactive stores with a minimal API. It's designed for applications that need structured state management without the complexity of full state machines.
+
+## What is XState Store?
+
+XState Store provides:
+
+- **Simple stores** - Manage state with a context object and event-based transitions
+- **Type-safe events** - Full TypeScript support with inferred event types
+- **Reactive subscriptions** - Subscribe to state changes and derived values
+- **Framework integrations** - First-class support for React, Solid, and Vue
+- **Atoms** - Fine-grained reactive primitives for computed values
+- **XState interop** - Use stores as actors in XState machines
+
+## Installation
+
+```bash
+npm install @xstate/store
+```
+
+For framework-specific hooks:
+
+```bash
+# React
+import { useSelector } from '@xstate/store/react';
+
+# Solid
+import { useSelector } from '@xstate/store/solid';
+```
+
+## Quick Example
+
+```typescript
+import { createStore } from '@xstate/store';
+
+const store = createStore({
+  context: { count: 0, name: 'Ada' },
+  on: {
+    inc: (context, event: { by: number }) => ({
+      ...context,
+      count: context.count + event.by
+    }),
+    updateName: (context, event: { name: string }) => ({
+      ...context,
+      name: event.name
+    })
+  }
+});
+
+// Subscribe to changes
+store.subscribe((snapshot) => {
+  console.log(snapshot.context);
+});
+
+// Send events
+store.send({ type: 'inc', by: 5 });
+// Logs: { count: 5, name: 'Ada' }
+
+// Or use the trigger helper
+store.trigger.inc({ by: 3 });
+// Logs: { count: 8, name: 'Ada' }
+```
+
+## Core Concepts
+
+### Context
+
+The `context` is your store's state. It's a plain object that holds all your application data:
+
+```typescript
+const store = createStore({
+  context: {
+    user: { id: 1, name: 'Alice' },
+    settings: { theme: 'dark' },
+    items: []
+  },
+  on: { /* ... */ }
+});
+```
+
+### Events and Transitions
+
+Events trigger transitions that update context. Each event handler receives the current context and event payload:
+
+```typescript
+const store = createStore({
+  context: { items: [] as string[] },
+  on: {
+    addItem: (context, event: { item: string }) => ({
+      ...context,
+      items: [...context.items, event.item]
+    }),
+    removeItem: (context, event: { index: number }) => ({
+      ...context,
+      items: context.items.filter((_, i) => i !== event.index)
+    })
+  }
+});
+```
+
+### Snapshots
+
+Calling `store.getSnapshot()` or `store.get()` returns a snapshot with:
+
+```typescript
+const snapshot = store.get();
+// {
+//   status: 'active',
+//   context: { /* your state */ },
+//   output: undefined,
+//   error: undefined
+// }
+```
+
+<Note>
+  The snapshot structure matches XState's snapshot format, making stores compatible with XState actors.
+</Note>
+
+## When to Use XState Store
+
+### Use XState Store when:
+
+- You need simple, event-driven state management
+- Your state updates follow predictable patterns
+- You want type-safe state and events
+- You need fine-grained reactivity with selectors
+- You're building a new app without complex workflows
+
+### Use XState (state machines) when:
+
+- You have complex state transitions with guards and conditions
+- Your logic involves sequential workflows or multi-step processes
+- You need state charts for visualization
+- You require advanced features like actors, spawning, and hierarchical states
+- Your domain has many possible states and transitions between them
+
+<Tip>
+  You can use both! XState Store can be used as an [actor in XState machines](/docs/integrations/store/framework-bindings#xstate-integration) with `fromStore()`.
+</Tip>
+
+## Store vs Redux
+
+If you're familiar with Redux:
+
+| Feature | XState Store | Redux |
+|---------|--------------|-------|
+| **State updates** | Event handlers return new context | Reducers with actions |
+| **Immutability** | Manual spreading or Immer | Manual spreading |
+| **Type safety** | Inferred from event handlers | Requires manual typing |
+| **Middleware** | Effects via `enqueue` | Middleware |
+| **DevTools** | XState inspector | Redux DevTools |
+| **Side effects** | Built-in with `enqueue.effect()` | Requires middleware |
+
+```typescript
+// XState Store
+const store = createStore({
+  context: { count: 0 },
+  on: {
+    inc: (ctx) => ({ count: ctx.count + 1 })
+  }
+});
+store.trigger.inc();
+
+// Redux equivalent
+const reducer = (state = { count: 0 }, action) => {
+  switch (action.type) {
+    case 'inc': return { count: state.count + 1 };
+    default: return state;
+  }
+};
+const store = createStore(reducer);
+store.dispatch({ type: 'inc' });
+```
+
+## Next Steps
+
+<Cards>
+  <Card title="Create Store" href="/docs/integrations/store/create-store">
+    Learn how to create and configure stores
+  </Card>
+  <Card title="Atoms API" href="/docs/integrations/store/atoms">
+    Work with fine-grained reactive primitives
+  </Card>
+  <Card title="Framework Bindings" href="/docs/integrations/store/framework-bindings">
+    Use stores in React, Solid, and Vue
+  </Card>
+</Cards>

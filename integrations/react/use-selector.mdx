@@ -1,0 +1,558 @@
+---
+title: useSelector
+description: Subscribe to derived state from an actor with optimized re-renders
+---
+
+The `useSelector` hook subscribes to specific derived state from an actor, only triggering re-renders when the selected value changes. This enables fine-grained reactivity and performance optimization.
+
+## Type Signature
+
+```typescript
+function useSelector<
+  TActor extends Pick<AnyActorRef, 'subscribe' | 'getSnapshot'> | undefined,
+  T
+>(
+  actor: TActor,
+  selector: (snapshot: SnapshotFrom<TActor>) => T,
+  compare?: (a: T, b: T) => boolean
+): T
+```
+
+## Parameters
+
+- **`actor`** - The actor reference to subscribe to (or `undefined`)
+- **`selector`** - Function that derives a value from the actor's snapshot
+- **`compare`** *(optional)* - Custom equality function to determine if the selected value changed (defaults to `===`)
+
+## Return Value
+
+Returns the selected value from the actor's current snapshot.
+
+## Basic Usage
+
+### Select Context Value
+
+```tsx
+import { useActorRef, useSelector } from '@xstate/react';
+import { createMachine, assign } from 'xstate';
+
+const counterMachine = createMachine({
+  context: { count: 0, lastUpdate: null },
+  on: {
+    INCREMENT: {
+      actions: assign({
+        count: ({ context }) => context.count + 1,
+        lastUpdate: () => Date.now()
+      })
+    }
+  }
+});
+
+function Counter() {
+  const actorRef = useActorRef(counterMachine);
+  
+  // Only re-renders when count changes, not when lastUpdate changes
+  const count = useSelector(actorRef, (state) => state.context.count);
+
+  return (
+    <div>
+      <p>Count: {count}</p>
+      <button onClick={() => actorRef.send({ type: 'INCREMENT' })}>+</button>
+    </div>
+  );
+}
+```
+
+### Select Multiple Values
+
+```tsx
+import { useActorRef, useSelector } from '@xstate/react';
+import { createMachine, assign } from 'xstate';
+
+const userMachine = createMachine({
+  context: { 
+    name: 'Alice', 
+    email: 'alice@example.com',
+    preferences: { theme: 'dark' }
+  },
+  on: {
+    UPDATE_NAME: {
+      actions: assign({
+        name: ({ event }) => event.name
+      })
+    },
+    UPDATE_EMAIL: {
+      actions: assign({
+        email: ({ event }) => event.email
+      })
+    }
+  }
+});
+
+function UserProfile() {
+  const userRef = useActorRef(userMachine);
+
+  return (
+    <div>
+      <UserName actorRef={userRef} />
+      <UserEmail actorRef={userRef} />
+    </div>
+  );
+}
+
+// Only re-renders when name changes
+function UserName({ actorRef }) {
+  const name = useSelector(actorRef, (state) => state.context.name);
+  return <div>Name: {name}</div>;
+}
+
+// Only re-renders when email changes
+function UserEmail({ actorRef }) {
+  const email = useSelector(actorRef, (state) => state.context.email);
+  return <div>Email: {email}</div>;
+}
+```
+
+## Advanced Usage
+
+### Custom Comparison Function
+
+```tsx
+import { useActorRef, useSelector } from '@xstate/react';
+import { createMachine, assign } from 'xstate';
+
+const todoMachine = createMachine({
+  context: { 
+    todos: [] as Array<{ id: number; text: string; completed: boolean }>
+  },
+  on: {
+    ADD_TODO: {
+      actions: assign({
+        todos: ({ context, event }) => [
+          ...context.todos,
+          { id: Date.now(), text: event.text, completed: false }
+        ]
+      })
+    },
+    TOGGLE_TODO: {
+      actions: assign({
+        todos: ({ context, event }) => 
+          context.todos.map(todo => 
+            todo.id === event.id 
+              ? { ...todo, completed: !todo.completed }
+              : todo
+          )
+      })
+    }
+  }
+});
+
+// Shallow array comparison
+function shallowArrayCompare(a, b) {
+  if (a.length !== b.length) return false;
+  return a.every((item, index) => item === b[index]);
+}
+
+function TodoList() {
+  const todoRef = useActorRef(todoMachine);
+  
+  // Only re-renders when the array reference or items change
+  const todos = useSelector(
+    todoRef,
+    (state) => state.context.todos,
+    shallowArrayCompare
+  );
+
+  return (
+    <ul>
+      {todos.map(todo => (
+        <li key={todo.id}>
+          <input
+            type="checkbox"
+            checked={todo.completed}
+            onChange={() => todoRef.send({ 
+              type: 'TOGGLE_TODO', 
+              id: todo.id 
+            })}
+          />
+          {todo.text}
+        </li>
+      ))}
+    </ul>
+  );
+}
+```
+
+### Deep Equality Comparison
+
+```tsx
+import { useActorRef, useSelector } from '@xstate/react';
+import { createMachine, assign } from 'xstate';
+import isEqual from 'lodash/isEqual';
+
+const formMachine = createMachine({
+  context: {
+    form: {
+      user: { name: '', email: '' },
+      preferences: { notifications: true }
+    }
+  },
+  on: {
+    UPDATE: {
+      actions: assign({
+        form: ({ context, event }) => ({
+          ...context.form,
+          ...event.updates
+        })
+      })
+    }
+  }
+});
+
+function UserPreferences() {
+  const formRef = useActorRef(formMachine);
+  
+  // Only re-renders when preferences object deeply changes
+  const preferences = useSelector(
+    formRef,
+    (state) => state.context.form.preferences,
+    isEqual // Deep equality check
+  );
+
+  return (
+    <div>
+      <label>
+        <input 
+          type="checkbox" 
+          checked={preferences.notifications}
+          onChange={(e) => formRef.send({
+            type: 'UPDATE',
+            updates: { 
+              preferences: { 
+                notifications: e.target.checked 
+              }
+            }
+          })}
+        />
+        Enable notifications
+      </label>
+    </div>
+  );
+}
+```
+
+### Derived State Computation
+
+```tsx
+import { useActorRef, useSelector } from '@xstate/react';
+import { createMachine } from 'xstate';
+
+const cartMachine = createMachine({
+  context: {
+    items: [
+      { id: 1, name: 'Product 1', price: 10, quantity: 2 },
+      { id: 2, name: 'Product 2', price: 20, quantity: 1 }
+    ]
+  },
+  on: {
+    UPDATE_QUANTITY: {
+      actions: assign({
+        items: ({ context, event }) =>
+          context.items.map(item =>
+            item.id === event.id
+              ? { ...item, quantity: event.quantity }
+              : item
+          )
+      })
+    }
+  }
+});
+
+function Cart() {
+  const cartRef = useActorRef(cartMachine);
+
+  return (
+    <div>
+      <CartItems actorRef={cartRef} />
+      <CartTotal actorRef={cartRef} />
+    </div>
+  );
+}
+
+function CartItems({ actorRef }) {
+  const items = useSelector(actorRef, (state) => state.context.items);
+  
+  return (
+    <ul>
+      {items.map(item => (
+        <li key={item.id}>
+          {item.name} - ${item.price} x {item.quantity}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function CartTotal({ actorRef }) {
+  // Computed value - only recalculates when total changes
+  const total = useSelector(
+    actorRef,
+    (state) => state.context.items.reduce(
+      (sum, item) => sum + (item.price * item.quantity),
+      0
+    )
+  );
+  
+  return <div>Total: ${total}</div>;
+}
+```
+
+### Conditional Selection
+
+```tsx
+import { useActorRef, useSelector } from '@xstate/react';
+import { createMachine } from 'xstate';
+
+const dataMachine = createMachine({
+  initial: 'loading',
+  context: { data: null, error: null },
+  states: {
+    loading: {
+      invoke: {
+        src: 'fetchData',
+        onDone: {
+          target: 'success',
+          actions: assign({ data: ({ event }) => event.output })
+        },
+        onError: {
+          target: 'failure',
+          actions: assign({ error: ({ event }) => event.error })
+        }
+      }
+    },
+    success: {},
+    failure: {}
+  }
+});
+
+function DataDisplay() {
+  const dataRef = useActorRef(dataMachine);
+  
+  const isLoading = useSelector(
+    dataRef,
+    (state) => state.matches('loading')
+  );
+  
+  const data = useSelector(
+    dataRef,
+    (state) => state.context.data
+  );
+  
+  const error = useSelector(
+    dataRef,
+    (state) => state.context.error
+  );
+
+  if (isLoading) return <div>Loading...</div>;
+  if (error) return <div>Error: {error.message}</div>;
+  return <div>Data: {JSON.stringify(data)}</div>;
+}
+```
+
+### With Actor Context
+
+```tsx
+import { createActorContext } from '@xstate/react';
+import { createMachine, assign } from 'xstate';
+
+const appMachine = createMachine({
+  context: {
+    user: null,
+    theme: 'light',
+    notifications: []
+  },
+  initial: 'idle',
+  states: {
+    idle: {}
+  },
+  on: {
+    SET_THEME: {
+      actions: assign({
+        theme: ({ event }) => event.theme
+      })
+    },
+    ADD_NOTIFICATION: {
+      actions: assign({
+        notifications: ({ context, event }) => [
+          ...context.notifications,
+          event.notification
+        ]
+      })
+    }
+  }
+});
+
+const AppContext = createActorContext(appMachine);
+
+function App() {
+  return (
+    <AppContext.Provider>
+      <Header />
+      <Notifications />
+      <ThemeSwitcher />
+    </AppContext.Provider>
+  );
+}
+
+// Only re-renders when theme changes
+function Header() {
+  const theme = AppContext.useSelector((state) => state.context.theme);
+  
+  return <header className={theme}>Header</header>;
+}
+
+// Only re-renders when notifications change
+function Notifications() {
+  const notifications = AppContext.useSelector(
+    (state) => state.context.notifications
+  );
+  
+  return (
+    <div>
+      {notifications.map((notif, i) => (
+        <div key={i}>{notif}</div>
+      ))}
+    </div>
+  );
+}
+
+function ThemeSwitcher() {
+  const actorRef = AppContext.useActorRef();
+  const theme = AppContext.useSelector((state) => state.context.theme);
+  
+  return (
+    <button onClick={() => actorRef.send({ 
+      type: 'SET_THEME', 
+      theme: theme === 'light' ? 'dark' : 'light' 
+    })}>
+      Toggle Theme
+    </button>
+  );
+}
+```
+
+## Handling Undefined Actors
+
+```tsx
+import { useSelector } from '@xstate/react';
+
+function OptionalDisplay({ actorRef }) {
+  // Returns undefined if actor is undefined
+  const value = useSelector(
+    actorRef,
+    (state) => state?.context.value ?? 'No data'
+  );
+  
+  return <div>{value}</div>;
+}
+```
+
+## Error Handling
+
+The hook automatically throws errors when the snapshot status is 'error':
+
+```tsx
+import { useActorRef, useSelector } from '@xstate/react';
+import { ErrorBoundary } from 'react-error-boundary';
+
+function DataComponent() {
+  const dataRef = useActorRef(dataMachine);
+  
+  // Throws if snapshot.status === 'error'
+  const data = useSelector(dataRef, (state) => state.context.data);
+  
+  return <div>{JSON.stringify(data)}</div>;
+}
+
+function App() {
+  return (
+    <ErrorBoundary fallback={<div>Error occurred</div>}>
+      <DataComponent />
+    </ErrorBoundary>
+  );
+}
+```
+
+## Performance Comparison
+
+<CodeGroup>
+```tsx useActor (re-renders on all changes)
+import { useActor } from '@xstate/react';
+
+function Component() {
+  const [state] = useActor(machine);
+  // Re-renders whenever ANY context property changes
+  return <div>{state.context.count}</div>;
+}
+```
+
+```tsx useSelector (selective re-renders)
+import { useActorRef, useSelector } from '@xstate/react';
+
+function Component() {
+  const actorRef = useActorRef(machine);
+  const count = useSelector(actorRef, (state) => state.context.count);
+  // Only re-renders when count changes
+  return <div>{count}</div>;
+}
+```
+</CodeGroup>
+
+## Common Selectors
+
+```tsx
+// Select state value
+const stateValue = useSelector(actorRef, (state) => state.value);
+
+// Check if in state
+const isActive = useSelector(actorRef, (state) => state.matches('active'));
+
+// Select context property
+const count = useSelector(actorRef, (state) => state.context.count);
+
+// Select nested property
+const userName = useSelector(actorRef, (state) => state.context.user.name);
+
+// Derive computed value
+const total = useSelector(
+  actorRef,
+  (state) => state.context.items.reduce((sum, item) => sum + item.price, 0)
+);
+
+// Select from tags
+const hasError = useSelector(
+  actorRef,
+  (state) => state.hasTag('error')
+);
+
+// Check if state can transition
+const canSubmit = useSelector(
+  actorRef,
+  (state) => state.can({ type: 'SUBMIT' })
+);
+```
+
+## Important Notes
+
+- The component only re-renders when the selected value changes according to the comparison function
+- Default comparison uses strict equality (`===`)
+- Use custom comparison for objects/arrays to avoid unnecessary re-renders
+- The selector function should be pure and deterministic
+- If the actor is `undefined`, the selector receives `undefined` as the snapshot
+- Automatically throws errors for snapshots with status 'error'
+
+## See Also
+
+- [useActor](/integrations/react/use-actor) - Create and subscribe to an actor
+- [useActorRef](/integrations/react/use-actor-ref) - Create an actor without subscribing
+- [createActorContext](/integrations/react/create-actor-context) - Share actors via context

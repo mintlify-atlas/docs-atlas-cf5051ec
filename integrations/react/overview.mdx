@@ -1,0 +1,259 @@
+---
+title: React Integration
+description: Official XState hooks and utilities for React applications
+---
+
+The `@xstate/react` package provides React hooks and utilities for using XState actors in React applications.
+
+## Installation
+
+<CodeGroup>
+```bash npm
+npm install @xstate/react xstate
+```
+
+```bash pnpm
+pnpm add @xstate/react xstate
+```
+
+```bash yarn
+yarn add @xstate/react xstate
+```
+</CodeGroup>
+
+## Requirements
+
+- React 16.8.0 or higher (requires hooks support)
+- XState 5.0.0 or higher
+
+## Available Hooks
+
+The package exports the following hooks:
+
+### Core Hooks
+
+- **[`useActor`](/integrations/react/use-actor)** - Create and subscribe to an actor from logic
+- **[`useActorRef`](/integrations/react/use-actor-ref)** - Create an actor ref without subscribing to state changes
+- **[`useSelector`](/integrations/react/use-selector)** - Subscribe to derived state from an actor
+
+### Context Utilities
+
+- **[`createActorContext`](/integrations/react/create-actor-context)** - Create React context for sharing actors across components
+
+## Quick Start
+
+### Basic Usage with useActor
+
+```tsx
+import { useActor } from '@xstate/react';
+import { createMachine } from 'xstate';
+
+const toggleMachine = createMachine({
+  id: 'toggle',
+  initial: 'inactive',
+  states: {
+    inactive: {
+      on: { TOGGLE: 'active' }
+    },
+    active: {
+      on: { TOGGLE: 'inactive' }
+    }
+  }
+});
+
+function Toggle() {
+  const [state, send] = useActor(toggleMachine);
+
+  return (
+    <button onClick={() => send({ type: 'TOGGLE' })}
+      {state.value === 'active' ? 'ON' : 'OFF'}
+    </button>
+  );
+}
+```
+
+### Using Context for Shared State
+
+```tsx
+import { createActorContext } from '@xstate/react';
+import { createMachine } from 'xstate';
+
+const userMachine = createMachine({
+  id: 'user',
+  initial: 'loggedOut',
+  context: { user: null },
+  states: {
+    loggedOut: {
+      on: {
+        LOGIN: {
+          target: 'loggedIn',
+          actions: assign({
+            user: ({ event }) => event.user
+          })
+        }
+      }
+    },
+    loggedIn: {
+      on: {
+        LOGOUT: {
+          target: 'loggedOut',
+          actions: assign({ user: null })
+        }
+      }
+    }
+  }
+});
+
+const UserContext = createActorContext(userMachine);
+
+function App() {
+  return (
+    <UserContext.Provider>
+      <UserProfile />
+      <LoginButton />
+    </UserContext.Provider>
+  );
+}
+
+function UserProfile() {
+  const user = UserContext.useSelector((state) => state.context.user);
+  
+  if (!user) return null;
+  
+  return <div>Welcome, {user.name}!</div>;
+}
+
+function LoginButton() {
+  const actorRef = UserContext.useActorRef();
+  const isLoggedIn = UserContext.useSelector((state) => 
+    state.matches('loggedIn')
+  );
+
+  return (
+    <button
+      onClick={() => {
+        if (isLoggedIn) {
+          actorRef.send({ type: 'LOGOUT' });
+        } else {
+          actorRef.send({ 
+            type: 'LOGIN', 
+            user: { name: 'Alice' } 
+          });
+        }
+      }}
+    >
+      {isLoggedIn ? 'Logout' : 'Login'}
+    </button>
+  );
+}
+```
+
+### Optimizing Re-renders with useSelector
+
+```tsx
+import { useActorRef, useSelector } from '@xstate/react';
+import { createMachine } from 'xstate';
+
+const counterMachine = createMachine({
+  context: { count: 0, lastUpdate: null },
+  on: {
+    INCREMENT: {
+      actions: assign({
+        count: ({ context }) => context.count + 1,
+        lastUpdate: () => new Date().toISOString()
+      })
+    }
+  }
+});
+
+function Counter() {
+  const actorRef = useActorRef(counterMachine);
+  
+  return (
+    <div>
+      <CountDisplay actorRef={actorRef} />
+      <LastUpdate actorRef={actorRef} />
+      <button onClick={() => actorRef.send({ type: 'INCREMENT' })}
+        Increment
+      </button>
+    </div>
+  );
+}
+
+// Only re-renders when count changes
+function CountDisplay({ actorRef }) {
+  const count = useSelector(actorRef, (state) => state.context.count);
+  
+  return <div>Count: {count}</div>;
+}
+
+// Only re-renders when lastUpdate changes
+function LastUpdate({ actorRef }) {
+  const lastUpdate = useSelector(
+    actorRef, 
+    (state) => state.context.lastUpdate
+  );
+  
+  return <div>Last update: {lastUpdate}</div>;
+}
+```
+
+## Server-Side Rendering
+
+All hooks are compatible with server-side rendering (SSR). The package uses `use-sync-external-store` shim to ensure compatibility with React 18's concurrent features and SSR.
+
+```tsx
+import { useActor } from '@xstate/react';
+import { createMachine } from 'xstate';
+
+const dataMachine = createMachine({
+  initial: 'loading',
+  states: {
+    loading: {
+      invoke: {
+        src: 'fetchData',
+        onDone: {
+          target: 'success',
+          actions: assign({
+            data: ({ event }) => event.output
+          })
+        },
+        onError: 'failure'
+      }
+    },
+    success: {},
+    failure: {}
+  }
+});
+
+function DataComponent({ initialData }) {
+  const [state] = useActor(dataMachine, {
+    input: { data: initialData }
+  });
+
+  if (state.matches('loading')) {
+    return <div>Loading...</div>;
+  }
+
+  if (state.matches('failure')) {
+    return <div>Error loading data</div>;
+  }
+
+  return <div>{JSON.stringify(state.context.data)}</div>;
+}
+```
+
+## Migration from v4
+
+If you're upgrading from `@xstate/react` v4:
+
+- `useMachine` has been deprecated in favor of `useActor`
+- `useInterpret` has been deprecated in favor of `useActorRef`
+- Actor refs are now automatically started and stopped
+- The third return value from `useActor` is now the actor ref instead of the service
+
+## Next Steps
+
+- Learn about [useActor](/integrations/react/use-actor) for component state management
+- Optimize performance with [useSelector](/integrations/react/use-selector)
+- Share state across components with [createActorContext](/integrations/react/create-actor-context)

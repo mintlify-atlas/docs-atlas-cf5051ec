@@ -1,0 +1,180 @@
+---
+title: Traffic Light Example
+description: Model a traffic light with sequential state transitions
+---
+
+This example demonstrates a classic finite state machine pattern: a traffic light that cycles through states.
+
+## Overview
+
+The traffic light machine models a signal that transitions through three states:
+1. **green** - Go
+2. **yellow** - Caution
+3. **red** - Stop
+
+A `TIMER` event advances to the next state in the cycle.
+
+## Machine Definition
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const lightMachine = createMachine({
+  id: 'light',
+  initial: 'green',
+  states: {
+    green: {
+      on: {
+        TIMER: 'yellow'
+      }
+    },
+    yellow: {
+      on: {
+        TIMER: 'red'
+      }
+    },
+    red: {
+      on: {
+        TIMER: 'green'
+      }
+    }
+  }
+});
+```
+
+## Implementation
+
+<Steps>
+
+### Define sequential states
+
+Create states that form a cycle:
+
+```typescript
+initial: 'green',
+states: {
+  green: { on: { TIMER: 'yellow' } },
+  yellow: { on: { TIMER: 'red' } },
+  red: { on: { TIMER: 'green' } }
+}
+```
+
+### Create and start actor
+
+```typescript
+const actor = createActor(lightMachine);
+
+actor.subscribe((state) => {
+  console.log(state.value);
+});
+
+actor.start();
+// logs 'green'
+```
+
+### Send timer events
+
+Advance through the cycle:
+
+```typescript
+actor.send({ type: 'TIMER' });
+// logs 'yellow'
+
+actor.send({ type: 'TIMER' });
+// logs 'red'
+
+actor.send({ type: 'TIMER' });
+// logs 'green'
+```
+
+</Steps>
+
+## Complete Example
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const lightMachine = createMachine({
+  id: 'light',
+  initial: 'green',
+  states: {
+    green: {
+      on: {
+        TIMER: 'yellow'
+      }
+    },
+    yellow: {
+      on: {
+        TIMER: 'red'
+      }
+    },
+    red: {
+      on: {
+        TIMER: 'green'
+      }
+    }
+  }
+});
+
+const actor = createActor(lightMachine);
+
+actor.subscribe((state) => {
+  console.log(state.value);
+});
+
+actor.start();
+// logs 'green'
+
+actor.send({ type: 'TIMER' });
+// logs 'yellow'
+
+actor.send({ type: 'TIMER' });
+// logs 'red'
+
+actor.send({ type: 'TIMER' });
+// logs 'green' (cycle repeats)
+```
+
+## Adding Delays
+
+You can make the transitions automatic using `after`:
+
+```typescript
+const lightMachine = createMachine({
+  id: 'light',
+  initial: 'green',
+  states: {
+    green: {
+      after: {
+        5000: 'yellow' // 5 seconds
+      }
+    },
+    yellow: {
+      after: {
+        2000: 'red' // 2 seconds
+      }
+    },
+    red: {
+      after: {
+        5000: 'green' // 5 seconds
+      }
+    }
+  }
+});
+```
+
+## Key Concepts
+
+- **Sequential transitions**: States transition in a defined order
+- **Cyclic behavior**: The last state transitions back to the first
+- **Single event type**: One event (`TIMER`) drives all transitions
+- **Deterministic**: Always in exactly one state at a time
+
+## Use Cases
+
+This pattern works well for:
+- Wizards and multi-step forms
+- Onboarding flows
+- Game turn systems
+- Process workflows
+- Animation sequences

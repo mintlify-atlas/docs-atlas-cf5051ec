@@ -1,0 +1,229 @@
+---
+title: Data Fetching Example
+description: Handle asynchronous data fetching with error handling and retries
+---
+
+This example demonstrates how to fetch data asynchronously using promise actors, with proper loading, success, and error states.
+
+## Overview
+
+The fetch machine models a complete async data flow:
+- **idle** - Waiting to fetch
+- **loading** - Fetching data
+- **success** - Data loaded successfully
+- **failure** - Error occurred (with auto-retry)
+
+## Machine Definition
+
+```typescript
+import { assign, fromPromise, setup } from 'xstate';
+import { getGreeting } from '.';
+
+export const fetchMachine = setup({
+  types: {
+    context: {} as {
+      name: string;
+      data: {
+        greeting: string;
+      } | null;
+    }
+  },
+  actors: {
+    fetchUser: fromPromise(({ input }: { input: { name: string } }) =>
+      getGreeting(input.name)
+    )
+  }
+}).createMachine({
+  initial: 'idle',
+  context: {
+    name: 'World',
+    data: null
+  },
+  states: {
+    idle: {
+      on: {
+        FETCH: 'loading'
+      }
+    },
+    loading: {
+      invoke: {
+        src: 'fetchUser',
+        input: ({ context }) => ({ name: context.name }),
+        onDone: {
+          target: 'success',
+          actions: assign({
+            data: ({ event }) => event.output
+          })
+        },
+        onError: 'failure'
+      }
+    },
+    success: {},
+    failure: {
+      after: {
+        1000: 'loading'
+      },
+      on: {
+        RETRY: 'loading'
+      }
+    }
+  }
+});
+```
+
+## Implementation
+
+<Steps>
+
+### Create a promise actor
+
+Define an actor that wraps your async function:
+
+```typescript
+actors: {
+  fetchUser: fromPromise(({ input }: { input: { name: string } }) =>
+    getGreeting(input.name)
+  )
+}
+```
+
+### Define context types
+
+Specify the shape of your context data:
+
+```typescript
+types: {
+  context: {} as {
+    name: string;
+    data: { greeting: string } | null;
+  }
+}
+```
+
+### Invoke the actor
+
+Use `invoke` in the loading state:
+
+```typescript
+loading: {
+  invoke: {
+    src: 'fetchUser',
+    input: ({ context }) => ({ name: context.name }),
+    onDone: {
+      target: 'success',
+      actions: assign({
+        data: ({ event }) => event.output
+      })
+    },
+    onError: 'failure'
+  }
+}
+```
+
+### Handle success and failure
+
+Transition to appropriate states:
+
+- **onDone**: Assign the result to context and go to `success`
+- **onError**: Go to `failure` state
+
+### Implement retry logic
+
+Add automatic or manual retry:
+
+```typescript
+failure: {
+  after: {
+    1000: 'loading' // Auto-retry after 1 second
+  },
+  on: {
+    RETRY: 'loading' // Manual retry
+  }
+}
+```
+
+</Steps>
+
+## Complete Example
+
+```typescript
+import { createActor } from 'xstate';
+import { fetchMachine } from './fetchMachine';
+
+// Async function that may fail
+export async function getGreeting(name: string): Promise<{ greeting: string }> {
+  return new Promise((res, rej) => {
+    setTimeout(() => {
+      if (Math.random() < 0.5) {
+        rej();
+        return;
+      }
+      res({
+        greeting: `Hello, ${name}!`
+      });
+    }, 1000);
+  });
+}
+
+const fetchActor = createActor(fetchMachine);
+fetchActor.subscribe((state) => {
+  console.log('Value:', state.value);
+  console.log('Context:', state.context);
+});
+fetchActor.start();
+
+fetchActor.send({ type: 'FETCH' });
+```
+
+## Usage with React
+
+```typescript
+import { useMachine } from '@xstate/react';
+import { fetchMachine } from './fetchMachine';
+
+function UserGreeting() {
+  const [state, send] = useMachine(fetchMachine);
+
+  return (
+    <div>
+      {state.matches('idle') && (
+        <button onClick={() => send({ type: 'FETCH' })}>
+          Fetch Greeting
+        </button>
+      )}
+      
+      {state.matches('loading') && <p>Loading...</p>}
+      
+      {state.matches('success') && (
+        <p>{state.context.data?.greeting}</p>
+      )}
+      
+      {state.matches('failure') && (
+        <div>
+          <p>Error loading data</p>
+          <button onClick={() => send({ type: 'RETRY' })}>
+            Retry
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+## Key Concepts
+
+- **fromPromise()**: Converts promises into actors
+- **invoke**: Runs actors when entering a state
+- **onDone/onError**: Handle actor completion
+- **input**: Pass data to invoked actors
+- **event.output**: Access the promise result
+- **after**: Schedule delayed transitions
+
+## Best Practices
+
+1. **Type your context**: Use TypeScript for better autocomplete and safety
+2. **Handle errors**: Always provide an `onError` transition
+3. **Provide retry**: Let users recover from failures
+4. **Show loading states**: Keep users informed during async operations
+5. **Cancel on exit**: Invoked actors are automatically canceled when leaving the state

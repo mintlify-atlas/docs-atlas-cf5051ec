@@ -1,0 +1,171 @@
+---
+title: emit
+description: API reference for the emit action
+---
+
+Emits an event to event handlers registered on the actor via `actor.on(event, handler)`.
+
+```ts
+import { emit } from 'xstate';
+```
+
+## Signature
+
+```ts
+function emit<
+  TContext extends MachineContext,
+  TExpressionEvent extends EventObject,
+  TParams extends ParameterizedObject['params'] | undefined,
+  TEvent extends EventObject,
+  TEmitted extends AnyEventObject
+>(
+  eventOrExpr:
+    | DoNotInfer<TEmitted>
+    | SendExpr<TContext, TExpressionEvent, TParams, DoNotInfer<TEmitted>, TEvent>
+): ActionFunction<
+  TContext,
+  TExpressionEvent,
+  TEvent,
+  TParams,
+  never,
+  never,
+  never,
+  never,
+  TEmitted
+>
+```
+
+## Parameters
+
+<ParamField path="eventOrExpr" type="EventObject | SendExpr" required>
+  The event to emit, or an expression that returns an event to emit. Can be:
+  - An event object (e.g., `{ type: 'emitted', data: ... }`)
+  - A function that receives `ActionArgs` and returns an event object
+</ParamField>
+
+## Returns
+
+<ResponseField name="ActionFunction" type="ActionFunction">
+  An action function that emits the event to registered listeners when executed.
+</ResponseField>
+
+## Examples
+
+### Basic usage
+
+```ts
+import { createMachine, createActor, emit } from 'xstate';
+
+const machine = createMachine({
+  on: {
+    something: {
+      actions: emit({
+        type: 'emitted',
+        some: 'data'
+      })
+    }
+  }
+});
+
+const actor = createActor(machine).start();
+
+actor.on('emitted', (event) => {
+  console.log(event);
+  // logs: { type: 'emitted', some: 'data' }
+});
+
+actor.send({ type: 'something' });
+```
+
+### Dynamic event
+
+```ts
+const machine = createMachine({
+  types: {} as {
+    context: { count: number };
+  },
+  context: { count: 0 },
+  on: {
+    INCREMENT: {
+      actions: [
+        assign({
+          count: ({ context }) => context.count + 1
+        }),
+        emit(({ context }) => ({
+          type: 'count.updated',
+          count: context.count + 1
+        }))
+      ]
+    }
+  }
+});
+
+const actor = createActor(machine).start();
+
+actor.on('count.updated', (event) => {
+  console.log('Count is now:', event.count);
+});
+```
+
+### Emitting multiple events
+
+```ts
+const machine = createMachine({
+  on: {
+    PROCESS: {
+      actions: [
+        emit({ type: 'process.started' }),
+        // ... other actions ...
+        emit({ type: 'process.completed' })
+      ]
+    }
+  }
+});
+
+const actor = createActor(machine).start();
+
+actor.on('process.started', () => {
+  console.log('Processing started');
+});
+
+actor.on('process.completed', () => {
+  console.log('Processing completed');
+});
+```
+
+### Emitting with event data
+
+```ts
+const machine = createMachine({
+  on: {
+    SUBMIT: {
+      actions: emit(({ event }) => ({
+        type: 'form.submitted',
+        formData: event.data,
+        timestamp: Date.now()
+      }))
+    }
+  }
+});
+
+const actor = createActor(machine).start();
+
+actor.on('form.submitted', (event) => {
+  console.log('Form submitted:', event.formData);
+  console.log('At:', new Date(event.timestamp));
+});
+```
+
+## Notes
+
+<Note>
+  Emitted events are delivered to handlers registered via `actor.on()`. They are not sent to the state machine itself and do not trigger state transitions.
+</Note>
+
+<Tip>
+  Use `emit` to communicate with external observers or to implement side effects that need to respond to state machine actions without affecting the machine's state.
+</Tip>
+
+<Warning>
+  Custom actions should not call `emit()` directly, as it is not imperative. Use it only in machine configurations.
+</Warning>

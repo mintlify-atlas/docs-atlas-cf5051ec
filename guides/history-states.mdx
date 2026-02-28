@@ -1,0 +1,455 @@
+---
+title: History States
+description: Remember and restore previous state configurations
+---
+
+History states allow a state machine to remember the last active child state and restore it when re-entering a parent state. This is useful for "resuming where you left off" behavior.
+
+## What are History States?
+
+History states provide memory to your state machines. When you leave a parent state and later return to it, a history state can restore the exact child state that was previously active.
+
+<Note>
+History states don't execute themselves. They are special markers that tell the machine "restore the previous child state" instead of going to the `initial` state.
+</Note>
+
+## Types of History States
+
+There are two types of history:
+
+- **Shallow history** (`history: 'shallow'`): Restores only the immediate child state
+- **Deep history** (`history: 'deep'`): Restores the entire nested state hierarchy
+
+## Basic History State Example
+
+This payment flow example from XState's README shows history states in action:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+const paymentMachine = createMachine({
+  id: 'payment',
+  initial: 'method',
+  states: {
+    method: {
+      initial: 'cash',
+      states: {
+        cash: {
+          on: {
+            SWITCH_CHECK: 'check'
+          }
+        },
+        check: {
+          on: {
+            SWITCH_CASH: 'cash'
+          }
+        },
+        hist: { type: 'history' }
+      },
+      on: { NEXT: 'review' }
+    },
+    review: {
+      on: { PREVIOUS: 'method.hist' }
+    }
+  }
+});
+
+const actor = createActor(paymentMachine);
+actor.subscribe((state) => {
+  console.log(state.value);
+});
+
+actor.start();
+// State: { method: 'cash' }
+
+actor.send({ type: 'SWITCH_CHECK' });
+// State: { method: 'check' }
+
+actor.send({ type: 'NEXT' });
+// State: 'review'
+
+actor.send({ type: 'PREVIOUS' });
+// State: { method: 'check' } - History restored!
+```
+
+## Creating History States
+
+Define a history state as a child state with `type: 'history'`:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  id: 'wizard',
+  initial: 'steps',
+  states: {
+    steps: {
+      initial: 'step1',
+      states: {
+        step1: {
+          on: { NEXT: 'step2' }
+        },
+        step2: {
+          on: {
+            NEXT: 'step3',
+            BACK: 'step1'
+          }
+        },
+        step3: {
+          on: { BACK: 'step2' }
+        },
+        // History state
+        hist: {
+          type: 'history'
+        }
+      },
+      on: { SAVE: 'saved' }
+    },
+    saved: {
+      on: {
+        // Return to last step
+        CONTINUE: 'steps.hist'
+      }
+    }
+  }
+});
+```
+
+## Shallow vs Deep History
+
+### Shallow History
+
+Shallow history (default) only remembers the immediate child state:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  initial: 'menu',
+  states: {
+    menu: {
+      initial: 'file',
+      states: {
+        file: {
+          initial: 'new',
+          states: {
+            new: { on: { SELECT_OPEN: 'open' } },
+            open: {}
+          }
+        },
+        edit: {},
+        // Shallow history
+        hist: { type: 'history', history: 'shallow' }
+      },
+      on: { EXIT: 'closed' }
+    },
+    closed: {
+      on: { REOPEN: 'menu.hist' }
+    }
+  }
+});
+
+// If you were in { menu: { file: 'open' } }
+// Shallow history goes to { menu: 'file' } (default child of file)
+```
+
+### Deep History
+
+Deep history remembers the entire nested hierarchy:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  initial: 'menu',
+  states: {
+    menu: {
+      initial: 'file',
+      states: {
+        file: {
+          initial: 'new',
+          states: {
+            new: { on: { SELECT_OPEN: 'open' } },
+            open: {}
+          }
+        },
+        edit: {},
+        // Deep history
+        hist: { type: 'history', history: 'deep' }
+      },
+      on: { EXIT: 'closed' }
+    },
+    closed: {
+      on: { REOPEN: 'menu.hist' }
+    }
+  }
+});
+
+// If you were in { menu: { file: 'open' } }
+// Deep history restores { menu: { file: 'open' } }
+```
+
+## Default Target
+
+You can provide a default target for when no history exists:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  initial: 'outer',
+  states: {
+    outer: {
+      initial: 'inner1',
+      states: {
+        inner1: { on: { SWITCH: 'inner2' } },
+        inner2: { on: { SWITCH: 'inner1' } },
+        hist: {
+          type: 'history',
+          target: 'inner2' // Default if no history
+        }
+      },
+      on: { LEAVE: 'other' }
+    },
+    other: {
+      on: { RETURN: 'outer.hist' }
+    }
+  }
+});
+```
+
+## Multi-Step Form with History
+
+A practical example showing form progress restoration:
+
+```typescript
+import { createMachine, assign } from 'xstate';
+
+const formMachine = createMachine({
+  initial: 'form',
+  context: {
+    name: '',
+    email: '',
+    phone: ''
+  },
+  states: {
+    form: {
+      initial: 'name',
+      states: {
+        name: {
+          on: {
+            NEXT: {
+              target: 'email',
+              actions: assign({ name: ({ event }) => event.value })
+            }
+          }
+        },
+        email: {
+          on: {
+            NEXT: {
+              target: 'phone',
+              actions: assign({ email: ({ event }) => event.value })
+            },
+            BACK: 'name'
+          }
+        },
+        phone: {
+          on: {
+            BACK: 'email',
+            SUBMIT: '#review'
+          }
+        },
+        hist: { type: 'history' }
+      },
+      on: {
+        SAVE_DRAFT: 'draft'
+      }
+    },
+    draft: {
+      entry: () => console.log('Form saved as draft'),
+      on: {
+        RESUME: 'form.hist' // Resume where you left off
+      }
+    },
+    review: {
+      id: 'review',
+      on: {
+        EDIT: 'form.hist',
+        CONFIRM: 'submitted'
+      }
+    },
+    submitted: {
+      type: 'final'
+    }
+  }
+});
+```
+
+## Navigation with History
+
+History states are perfect for maintaining navigation state:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const appMachine = createMachine({
+  initial: 'home',
+  states: {
+    home: {},
+    settings: {
+      initial: 'profile',
+      states: {
+        profile: {
+          on: { GO_TO_PRIVACY: 'privacy' }
+        },
+        privacy: {
+          on: { GO_TO_NOTIFICATIONS: 'notifications' }
+        },
+        notifications: {},
+        hist: { type: 'history' }
+      },
+      on: { HOME: '#home' }
+    },
+    home: {
+      id: 'home',
+      on: { SETTINGS: 'settings.hist' }
+    }
+  }
+});
+
+// User visits: Home -> Settings (profile) -> Privacy -> Home
+// When they return to Settings, they'll be at Privacy, not Profile
+```
+
+<Steps>
+
+### When to Use History States
+
+1. **Multi-step wizards**: Resume at the current step
+2. **Navigation**: Remember the last visited page/tab
+3. **Collapsed/expanded sections**: Remember the previous state
+4. **Media players**: Resume playback position
+5. **Form drafts**: Continue editing where you stopped
+
+</Steps>
+
+## History with Parallel States
+
+History states work with parallel states too:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  initial: 'app',
+  states: {
+    app: {
+      type: 'parallel',
+      states: {
+        mode: {
+          initial: 'light',
+          states: {
+            light: { on: { TOGGLE: 'dark' } },
+            dark: { on: { TOGGLE: 'light' } },
+            hist: { type: 'history' }
+          }
+        },
+        sidebar: {
+          initial: 'collapsed',
+          states: {
+            collapsed: { on: { EXPAND: 'expanded' } },
+            expanded: { on: { COLLAPSE: 'collapsed' } },
+            hist: { type: 'history' }
+          }
+        }
+      },
+      on: { MINIMIZE: 'minimized' }
+    },
+    minimized: {
+      on: { RESTORE: 'app.hist' }
+    }
+  }
+});
+
+// When restored, both parallel regions remember their last states
+```
+
+## Multiple History States
+
+You can have multiple history states in different regions:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  initial: 'dashboard',
+  states: {
+    dashboard: {
+      initial: 'overview',
+      states: {
+        overview: { on: { DETAILS: 'details' } },
+        details: {},
+        dashHist: { type: 'history' }
+      }
+    },
+    settings: {
+      initial: 'general',
+      states: {
+        general: { on: { ADVANCED: 'advanced' } },
+        advanced: {},
+        settingsHist: { type: 'history' }
+      }
+    }
+  }
+});
+
+// Each section maintains its own history independently
+```
+
+<Warning>
+History states remember the last visited child state, not the entire context. If you need to restore context data, consider using persistence mechanisms alongside history states.
+</Warning>
+
+## Resetting History
+
+History is automatically updated whenever you transition. To "forget" history, transition to a specific child state instead of using the history state:
+
+```typescript
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  initial: 'menu',
+  states: {
+    menu: {
+      initial: 'item1',
+      states: {
+        item1: { on: { NEXT: 'item2' } },
+        item2: { on: { NEXT: 'item3' } },
+        item3: {},
+        hist: { type: 'history' }
+      },
+      on: { LEAVE: 'away' }
+    },
+    away: {
+      on: {
+        // Resume at last item
+        RETURN: 'menu.hist',
+        // Reset to first item
+        RETURN_START: 'menu.item1'
+      }
+    }
+  }
+});
+```
+
+<Tip>
+History states are especially useful in applications with complex navigation or multi-step processes where users need to suspend and resume their workflow.
+</Tip>
+
+## Best Practices
+
+1. **Name history states clearly**: Use names like `hist`, `history`, or `previousStep`
+2. **Provide defaults**: Always specify a target for when no history exists
+3. **Choose the right depth**: Use shallow for simple cases, deep for complex hierarchies
+4. **Document behavior**: Make it clear which states use history
+5. **Test edge cases**: Ensure history behaves correctly on first entry

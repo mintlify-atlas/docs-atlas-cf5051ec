@@ -1,0 +1,243 @@
+---
+title: spawnChild
+description: API reference for the spawnChild action
+---
+
+Spawns a child actor from actor logic.
+
+```ts
+import { spawnChild } from 'xstate';
+```
+
+## Signature
+
+```ts
+function spawnChild<
+  TContext extends MachineContext,
+  TExpressionEvent extends EventObject,
+  TParams extends ParameterizedObject['params'] | undefined,
+  TEvent extends EventObject,
+  TActor extends ProvidedActor
+>(
+  src: TActor['src'] | AnyActorLogic,
+  options?: SpawnActionOptions<TContext, TExpressionEvent, TEvent, TActor>
+): ActionFunction
+```
+
+## Parameters
+
+<ParamField path="src" type="string | AnyActorLogic" required>
+  The actor logic to spawn. Can be:
+  - String: reference to an actor defined in the machine's `actors` implementation
+  - Actor logic: inline actor logic (machine, promise, observable, etc.)
+</ParamField>
+
+<ParamField path="options" type="SpawnActionOptions">
+  Optional configuration object:
+  
+  <Expandable title="properties">
+    <ParamField path="id" type="string | ResolvableActorId">
+      The ID for the spawned actor. Can be:
+      - String: static ID
+      - Function: expression that receives `ActionArgs` and returns an ID
+      
+      Required if the actor is defined in the `actors` implementation and has a literal string `src`.
+    </ParamField>
+    
+    <ParamField path="systemId" type="string">
+      The system-level ID for the actor. This is used internally by XState for tracking actors across the system.
+    </ParamField>
+    
+    <ParamField path="input" type="InputFrom<TActor> | Mapper">
+      Input data to provide to the spawned actor. Can be:
+      - Static value matching the actor's input type
+      - Function that receives `{ context, event, self }` and returns input data
+    </ParamField>
+    
+    <ParamField path="syncSnapshot" type="boolean" default="false">
+      Whether to synchronously update the snapshot when the child actor transitions. When `true`, the parent's snapshot will include the child's latest state immediately.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Returns
+
+<ResponseField name="ActionFunction" type="ActionFunction">
+  An action function that spawns the child actor when executed.
+</ResponseField>
+
+## Examples
+
+### Spawn from actor implementation
+
+```ts
+import { createMachine, spawnChild, setup } from 'xstate';
+
+const childMachine = createMachine({
+  initial: 'active',
+  states: {
+    active: {}
+  }
+});
+
+const parentMachine = setup({
+  actors: {
+    child: childMachine
+  }
+}).createMachine({
+  on: {
+    SPAWN: {
+      actions: spawnChild('child', { id: 'myChild' })
+    }
+  }
+});
+```
+
+### Spawn with input
+
+```ts
+const machine = setup({
+  types: {} as {
+    context: { count: number };
+  },
+  actors: {
+    counter: createMachine({
+      types: {} as {
+        input: { initialCount: number };
+      },
+      context: ({ input }) => ({
+        count: input.initialCount
+      })
+    })
+  }
+}).createMachine({
+  context: { count: 0 },
+  on: {
+    SPAWN_COUNTER: {
+      actions: spawnChild('counter', {
+        id: 'counter',
+        input: ({ context }) => ({
+          initialCount: context.count
+        })
+      })
+    }
+  }
+});
+```
+
+### Spawn inline actor
+
+```ts
+import { fromPromise } from 'xstate';
+
+const machine = createMachine({
+  on: {
+    FETCH: {
+      actions: spawnChild(
+        fromPromise(async () => {
+          const response = await fetch('/api/data');
+          return response.json();
+        }),
+        {
+          id: 'fetchData'
+        }
+      )
+    }
+  }
+});
+```
+
+### Dynamic actor ID
+
+```ts
+const machine = setup({
+  actors: {
+    worker: createMachine({})
+  }
+}).createMachine({
+  types: {} as {
+    events: { type: 'SPAWN_WORKER'; workerId: string };
+  },
+  on: {
+    SPAWN_WORKER: {
+      actions: spawnChild('worker', {
+        id: ({ event }) => `worker-${event.workerId}`
+      })
+    }
+  }
+});
+```
+
+### Spawn with sync snapshot
+
+```ts
+const machine = createMachine({
+  types: {} as {
+    context: { childState: string };
+  },
+  context: { childState: 'unknown' },
+  on: {
+    SPAWN: {
+      actions: [
+        spawnChild(childMachine, {
+          id: 'child',
+          syncSnapshot: true
+        }),
+        assign({
+          childState: ({ context }) => {
+            const child = context.children?.child;
+            return child?.getSnapshot().value ?? 'unknown';
+          }
+        })
+      ]
+    }
+  }
+});
+```
+
+### Multiple spawned children
+
+```ts
+import { enqueueActions } from 'xstate';
+
+const machine = setup({
+  actors: {
+    task: createMachine({
+      types: {} as {
+        input: { taskId: string };
+      }
+    })
+  }
+}).createMachine({
+  types: {} as {
+    context: { taskIds: string[] };
+  },
+  context: { taskIds: ['task1', 'task2', 'task3'] },
+  on: {
+    SPAWN_ALL: {
+      actions: enqueueActions(({ enqueue, context }) => {
+        context.taskIds.forEach((taskId) => {
+          enqueue.spawnChild('task', {
+            id: taskId,
+            input: { taskId }
+          });
+        });
+      })
+    }
+  }
+});
+```
+
+## Notes
+
+<Note>
+  Spawned actors are automatically started after being spawned. They will continue running until they reach a final state or are explicitly stopped.
+</Note>
+
+<Tip>
+  Store spawned actor references in context if you need to interact with them later using `sendTo` or `stopChild`.
+</Tip>
+
+<Warning>
+  If an actor with the specified `src` is not found in the machine's implementations, a warning will be logged in development mode.
+</Warning>

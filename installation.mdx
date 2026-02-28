@@ -1,0 +1,142 @@
+---
+title: Installation
+description: Install XState in your project
+---
+
+XState is available as an npm package. You can install it using your preferred package manager.
+
+## Install XState
+
+<CodeGroup>
+```bash npm
+npm install xstate
+```
+
+```bash yarn
+yarn add xstate
+```
+
+```bash pnpm
+pnpm add xstate
+```
+</CodeGroup>
+
+## Framework-specific packages
+
+XState provides official integrations for popular frameworks:
+
+### React
+
+<CodeGroup>
+```bash npm
+npm install xstate @xstate/react
+```
+
+```bash yarn
+yarn add xstate @xstate/react
+```
+
+```bash pnpm
+pnpm add xstate @xstate/react
+```
+</CodeGroup>
+
+### Vue
+
+<CodeGroup>
+```bash npm
+npm install xstate @xstate/vue
+```
+
+```bash yarn
+yarn add xstate @xstate/vue
+```
+
+```bash pnpm
+pnpm add xstate @xstate/vue
+```
+</CodeGroup>
+
+### Svelte
+
+<CodeGroup>
+```bash npm
+npm install xstate @xstate/svelte
+```
+
+```bash yarn
+yarn add xstate @xstate/svelte
+```
+
+```bash pnpm
+pnpm add xstate @xstate/svelte
+```
+</CodeGroup>
+
+### Solid
+
+<CodeGroup>
+```bash npm
+npm install xstate @xstate/solid
+```
+
+```bash yarn
+yarn add xstate @xstate/solid
+```
+
+```bash pnpm
+pnpm add xstate @xstate/solid
+```
+</CodeGroup>
+
+## Templates
+
+Get started quickly by forking one of these templates:
+
+<CardGroup cols={2}>
+  <Card title="XState Template" icon="code" href="https://codesandbox.io/p/devbox/github/statelyai/xstate/tree/main/templates/vanilla-ts">
+    TypeScript template with no framework
+  </Card>
+  <Card title="XState + React" icon="react" href="https://codesandbox.io/p/devbox/github/statelyai/xstate/tree/main/templates/react-ts">
+    React + TypeScript template
+  </Card>
+  <Card title="XState + Vue" icon="vuejs" href="https://codesandbox.io/p/devbox/github/statelyai/xstate/tree/main/templates/vue-ts">
+    Vue + TypeScript template
+  </Card>
+  <Card title="XState + Svelte" icon="code" href="https://codesandbox.io/p/devbox/github/statelyai/xstate/tree/main/templates/svelte-ts">
+    Svelte + TypeScript template
+  </Card>
+</CardGroup>
+
+## Requirements
+
+XState has zero dependencies and works in any JavaScript environment:
+
+- **Node.js** - Version 14 or higher
+- **Browsers** - All modern browsers (Chrome, Firefox, Safari, Edge)
+- **TypeScript** - Version 5.0 or higher (optional but recommended)
+
+<Tip>
+XState is written in TypeScript and provides excellent type inference out of the box. We recommend using TypeScript for the best development experience.
+</Tip>
+
+## Verify installation
+
+You can verify that XState is installed correctly by importing it:
+
+```typescript
+import { createMachine, createActor } from 'xstate';
+
+console.log('XState is ready!');
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Build your first state machine
+  </Card>
+  <Card title="Core concepts" icon="book" href="/core-concepts">
+    Learn the fundamentals
+  </Card>
+</CardGroup>

@@ -1,0 +1,342 @@
+---
+title: Visualization
+description: Visualizing and designing state machines with Stately Studio
+---
+
+Visualizing state machines makes complex logic easier to understand, debug, and communicate. XState integrates seamlessly with Stately Studio for visual state machine design.
+
+## Stately Studio
+
+Stately Studio is a visual editor for creating, editing, and analyzing state machines. It provides:
+
+- Visual state machine design and editing
+- Automatic layout and diagram generation
+- Live simulation and testing
+- Export to XState v5 code
+- Collaboration features
+- Version history
+- Documentation generation
+
+**[Launch Stately Studio →](https://stately.ai/registry/new)**
+
+<Note>
+Stately Studio is available at [state.new](https://state.new) and is free for public machines.
+</Note>
+
+## Creating Machines Visually
+
+You can design state machines entirely in Stately Studio:
+
+1. Go to [state.new](https://state.new)
+2. Create a new machine
+3. Add states by clicking the canvas
+4. Add transitions by dragging between states
+5. Configure context, actions, and guards in the inspector
+6. Export to XState code
+
+```typescript
+// Code exported from Stately Studio
+import { setup, assign } from 'xstate';
+
+export const machine = setup({
+  types: {
+    context: {} as { count: number },
+    events: {} as { type: 'INCREMENT' } | { type: 'DECREMENT' }
+  }
+}).createMachine({
+  context: { count: 0 },
+  id: 'counter',
+  initial: 'active',
+  states: {
+    active: {
+      on: {
+        INCREMENT: {
+          actions: assign({
+            count: ({ context }) => context.count + 1
+          })
+        },
+        DECREMENT: {
+          actions: assign({
+            count: ({ context }) => context.count - 1
+          })
+        }
+      }
+    }
+  }
+});
+```
+
+## Importing Existing Machines
+
+You can import existing XState code into Stately Studio:
+
+1. Copy your machine code
+2. Open Stately Studio
+3. Click "Import" and paste your code
+4. The visual diagram is generated automatically
+
+<Tip>
+Stately Studio supports both XState v4 and v5 code. It will automatically migrate v4 machines to v5.
+</Tip>
+
+## Live Simulation
+
+Stately Studio allows you to simulate your state machine in real-time:
+
+- Send events to see transitions
+- Inspect context values
+- View action execution order
+- Test guards and conditions
+- Explore all possible states
+
+This helps catch logic errors before writing code.
+
+## Visual Features
+
+### State Types
+
+Stately Studio visually distinguishes different state types:
+
+- **Atomic states** - Single box
+- **Compound states** - Box containing child states
+- **Parallel states** - Dashed border indicating simultaneous regions
+- **Final states** - Double border
+- **History states** - Circle with H
+
+### Transitions
+
+- **Solid arrows** - External transitions (exit and re-enter)
+- **Curved arrows** - Internal transitions (stay in state)
+- **Eventless transitions** - Dashed arrows (always taken)
+- **Guarded transitions** - Diamond indicator
+
+### Context and Actions
+
+View and edit:
+- Context schema with types
+- Entry and exit actions
+- Transition actions
+- Action parameters
+
+## Generating Diagrams from Code
+
+XState provides utilities to generate diagrams from machines using the graph module (`graph/graph.ts:1-100`):
+
+```typescript
+import { toDirectedGraph } from 'xstate/graph';
+import { createMachine } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: { START: 'running' }
+    },
+    running: {
+      on: { STOP: 'idle' }
+    }
+  }
+});
+
+const graph = toDirectedGraph(machine);
+
+console.log(graph);
+// {
+//   nodes: [
+//     { id: '(machine).idle', ... },
+//     { id: '(machine).running', ... }
+//   ],
+//   edges: [
+//     { source: '(machine).idle', target: '(machine).running', event: 'START' },
+//     { source: '(machine).running', target: '(machine).idle', event: 'STOP' }
+//   ]
+// }
+```
+
+### Directed Graph Format
+
+The `toDirectedGraph()` function returns an object with:
+
+- `nodes` - Array of state nodes with properties:
+  - `id` - Unique state identifier
+  - `type` - State type (atomic, compound, parallel, final)
+  - `data` - Additional state metadata
+
+- `edges` - Array of transitions with properties:
+  - `source` - Source state ID
+  - `target` - Target state ID  
+  - `event` - Event that triggers transition
+  - `guards` - Guard conditions
+  - `actions` - Actions executed on transition
+
+## Integration with Visualization Libraries
+
+You can use the directed graph format with visualization libraries:
+
+### D3.js Example
+
+```typescript
+import * as d3 from 'd3';
+import { toDirectedGraph } from 'xstate/graph';
+
+const graph = toDirectedGraph(machine);
+
+const svg = d3.select('svg');
+
+// Draw nodes
+svg.selectAll('circle')
+  .data(graph.nodes)
+  .enter()
+  .append('circle')
+  .attr('r', 20)
+  .attr('cx', (d, i) => i * 100)
+  .attr('cy', 100);
+
+// Draw edges
+svg.selectAll('line')
+  .data(graph.edges)
+  .enter()
+  .append('line')
+  .attr('x1', (d) => graph.nodes.findIndex(n => n.id === d.source) * 100)
+  .attr('x2', (d) => graph.nodes.findIndex(n => n.id === d.target) * 100);
+```
+
+### Mermaid Example
+
+Convert to Mermaid diagram format:
+
+```typescript
+import { toDirectedGraph } from 'xstate/graph';
+
+function toMermaid(machine) {
+  const graph = toDirectedGraph(machine);
+  let mermaid = 'graph LR\n';
+  
+  graph.edges.forEach(edge => {
+    const source = edge.source.replace(/[().-]/g, '');
+    const target = edge.target.replace(/[().-]/g, '');
+    mermaid += `  ${source} -->|${edge.event}| ${target}\n`;
+  });
+  
+  return mermaid;
+}
+
+const mermaidDiagram = toMermaid(machine);
+console.log(mermaidDiagram);
+// graph LR
+//   machineidle -->|START| machinerunning
+//   machinerunning -->|STOP| machineidle
+```
+
+## VS Code Extension
+
+The [Stately VS Code extension](https://marketplace.visualstudio.com/items?itemName=statelyai.stately-vscode) provides:
+
+- Inline visualization of machines in your code
+- Syntax highlighting
+- Autocomplete for states and events
+- Quick navigation between states
+- Error detection
+
+Install from the VS Code marketplace:
+
+```bash
+code --install-extension statelyai.stately-vscode
+```
+
+## Stately Inspector
+
+The `@statelyai/inspect` package enables runtime visualization:
+
+```typescript
+import { createActor } from 'xstate';
+import { inspect } from '@statelyai/inspect';
+
+// Enable inspection
+const inspector = inspect({
+  url: 'https://stately.ai/inspect',
+  iframe: false
+});
+
+const actor = createActor(machine, {
+  inspect: inspector.inspect
+});
+
+actor.start();
+```
+
+This opens a connection to Stately Studio where you can:
+- See all state transitions in real-time
+- Inspect context changes
+- View event history
+- Monitor actor hierarchy
+- Export session recordings
+
+<Note>
+See the [Inspection guide](/advanced/inspection) for detailed setup instructions.
+</Note>
+
+## Documentation Generation
+
+Stately Studio automatically generates documentation from your machines:
+
+- State descriptions
+- Event catalogs
+- Transition tables
+- Context schemas
+- Action references
+
+Export as:
+- Markdown
+- HTML
+- PDF
+- Interactive site
+
+## Collaboration Features
+
+Stately Studio supports team collaboration:
+
+- **Real-time editing** - Multiple users can edit simultaneously
+- **Comments** - Add notes to states and transitions
+- **Version history** - Track changes over time
+- **Sharing** - Share machines via URL
+- **Teams** - Organize machines by team/project
+
+## Best Practices
+
+<Accordion title="Start with the visual editor">
+For complex machines, design visually first, then export to code. This helps catch logical errors early.
+</Accordion>
+
+<Accordion title="Keep diagrams clean">
+Use state descriptions instead of long state names. Group related states in compound states.
+</Accordion>
+
+<Accordion title="Use consistent naming">
+Follow naming conventions for states (PascalCase) and events (SCREAMING_SNAKE_CASE) across your team.
+</Accordion>
+
+<Accordion title="Document guards and actions">
+Add descriptions to guards and actions in Stately Studio to improve team understanding.
+</Accordion>
+
+<Warning>
+Visual complexity doesn't always mean code complexity. A machine with many states may be simpler than deeply nested conditions.
+</Warning>
+
+## Export Formats
+
+Stately Studio supports exporting to:
+
+- **XState v5** - TypeScript/JavaScript
+- **JSON** - Machine definition as JSON
+- **PNG/SVG** - Static diagrams
+- **Mermaid** - Mermaid diagram syntax
+- **Stately Sky** - Deployed executable machines
+
+## Resources
+
+- [Stately Studio](https://stately.ai/registry/new)
+- [VS Code Extension](https://marketplace.visualstudio.com/items?itemName=statelyai.stately-vscode)
+- [Stately Inspector](https://github.com/statelyai/inspect)
+- [Documentation](https://stately.ai/docs)

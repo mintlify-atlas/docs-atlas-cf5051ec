@@ -1,0 +1,247 @@
+---
+title: enqueueActions
+description: API reference for the enqueueActions action
+---
+
+Creates an action object that will execute actions that are queued by the `enqueue(action)` function.
+
+```ts
+import { enqueueActions } from 'xstate';
+```
+
+## Signature
+
+```ts
+function enqueueActions<
+  TContext extends MachineContext,
+  TExpressionEvent extends EventObject,
+  TParams extends ParameterizedObject['params'] | undefined,
+  TEvent extends EventObject = TExpressionEvent,
+  TActor extends ProvidedActor = ProvidedActor,
+  TAction extends ParameterizedObject = ParameterizedObject,
+  TGuard extends ParameterizedObject = ParameterizedObject,
+  TDelay extends string = never,
+  TEmitted extends EventObject = EventObject
+>(
+  collect: CollectActions<
+    TContext,
+    TExpressionEvent,
+    TParams,
+    TEvent,
+    TActor,
+    TAction,
+    TGuard,
+    TDelay,
+    TEmitted
+  >
+): ActionFunction
+```
+
+## Parameters
+
+<ParamField path="collect" type="CollectActions" required>
+  A function that receives a `CollectActionsArg` object and enqueues actions. The function receives:
+  
+  <Expandable title="properties">
+    <ParamField path="context" type="TContext">
+      The current state context.
+    </ParamField>
+    
+    <ParamField path="event" type="TEvent">
+      The event that triggered this action.
+    </ParamField>
+    
+    <ParamField path="enqueue" type="ActionEnqueuer">
+      Function to enqueue actions. Can be called directly with an action, or use helper methods:
+      - `enqueue.assign(...)` - enqueue an assign action
+      - `enqueue.cancel(...)` - enqueue a cancel action
+      - `enqueue.raise(...)` - enqueue a raise action
+      - `enqueue.sendTo(...)` - enqueue a sendTo action
+      - `enqueue.sendParent(...)` - enqueue a sendParent action
+      - `enqueue.spawnChild(...)` - enqueue a spawnChild action
+      - `enqueue.stopChild(...)` - enqueue a stopChild action
+      - `enqueue.emit(...)` - enqueue an emit action
+    </ParamField>
+    
+    <ParamField path="check" type="(guard: Guard) => boolean">
+      Function to evaluate guards. Returns `true` if the guard passes, `false` otherwise.
+    </ParamField>
+    
+    <ParamField path="self" type="ActorRef">
+      Reference to the current actor.
+    </ParamField>
+    
+    <ParamField path="system" type="ActorSystem">
+      Reference to the actor system.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Returns
+
+<ResponseField name="ActionFunction" type="ActionFunction">
+  An action function that executes the enqueued actions when invoked.
+</ResponseField>
+
+## Examples
+
+### Basic usage
+
+```ts
+import { createMachine, enqueueActions } from 'xstate';
+
+const machine = createMachine({
+  entry: enqueueActions(({ enqueue, check }) => {
+    enqueue.assign({ count: 0 });
+
+    if (check('someGuard')) {
+      enqueue.assign({ count: 1 });
+    }
+
+    enqueue('someAction');
+  })
+});
+```
+
+### Conditional actions
+
+```ts
+const machine = createMachine({
+  types: {} as {
+    context: { temperature: number };
+    events: { type: 'CHECK_TEMP' };
+  },
+  context: { temperature: 20 },
+  on: {
+    CHECK_TEMP: {
+      actions: enqueueActions(({ enqueue, context, check }) => {
+        if (context.temperature > 30) {
+          enqueue.raise({ type: 'OVERHEAT' });
+          enqueue.emit({ type: 'warning', level: 'high' });
+        } else if (context.temperature > 25) {
+          enqueue.emit({ type: 'warning', level: 'medium' });
+        }
+      })
+    }
+  }
+});
+```
+
+### Dynamic action sequences
+
+```ts
+const machine = createMachine({
+  types: {} as {
+    context: { items: string[] };
+  },
+  context: { items: [] },
+  on: {
+    PROCESS_ITEMS: {
+      actions: enqueueActions(({ enqueue, context }) => {
+        context.items.forEach((item, index) => {
+          enqueue.raise({
+            type: 'PROCESS_ITEM',
+            item,
+            index
+          });
+        });
+        
+        enqueue.raise({ type: 'PROCESSING_COMPLETE' });
+      })
+    }
+  }
+});
+```
+
+### Using check with guards
+
+```ts
+const machine = createMachine(
+  {
+    types: {} as {
+      context: { count: number };
+    },
+    context: { count: 0 },
+    on: {
+      INCREMENT: {
+        actions: enqueueActions(({ enqueue, check, context }) => {
+          enqueue.assign({
+            count: context.count + 1
+          });
+          
+          if (check({ type: 'isMax' })) {
+            enqueue.raise({ type: 'MAX_REACHED' });
+            enqueue.emit({ type: 'limit.reached' });
+          }
+        })
+      }
+    }
+  },
+  {
+    guards: {
+      isMax: ({ context }) => context.count >= 10
+    }
+  }
+);
+```
+
+### Combining multiple action types
+
+```ts
+const machine = createMachine({
+  types: {} as {
+    context: { 
+      status: string;
+      childRef: ActorRef<any> | null;
+    };
+  },
+  context: {
+    status: 'idle',
+    childRef: null
+  },
+  on: {
+    START_PROCESS: {
+      actions: enqueueActions(({ enqueue, context }) => {
+        // Update context
+        enqueue.assign({ status: 'processing' });
+        
+        // Spawn a child actor
+        enqueue.spawnChild('workerMachine', { id: 'worker' });
+        
+        // Send to child
+        enqueue.sendTo('worker', { type: 'START' });
+        
+        // Emit to observers
+        enqueue.emit({ type: 'process.started' });
+        
+        // Schedule a timeout
+        enqueue.raise(
+          { type: 'TIMEOUT' },
+          { delay: 5000, id: 'processTimeout' }
+        );
+      })
+    },
+    CANCEL: {
+      actions: enqueueActions(({ enqueue }) => {
+        enqueue.cancel('processTimeout');
+        enqueue.stopChild('worker');
+        enqueue.assign({ status: 'cancelled' });
+      })
+    }
+  }
+});
+```
+
+## Notes
+
+<Tip>
+  Use `enqueueActions` when you need to conditionally execute actions or dynamically determine which actions to run based on context, events, or guards.
+</Tip>
+
+<Note>
+  Actions are enqueued in the order they are called and will be executed in that same order.
+</Note>
+
+<Warning>
+  The `check()` function evaluates guards synchronously. Make sure your guards are pure functions that don't have side effects.
+</Warning>

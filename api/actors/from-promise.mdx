@@ -1,0 +1,379 @@
+---
+title: fromPromise()
+description: Create actor logic from an async promise function
+---
+
+The `fromPromise()` function creates actor logic from an async function that returns a promise. Actors created from promise logic emit the resolved value and complete when the promise settles.
+
+## Signature
+
+```ts
+function fromPromise<
+  TOutput,
+  TInput = NonReducibleUnknown,
+  TEmitted extends EventObject = EventObject
+>(
+  promiseCreator: ({
+    input,
+    system,
+    self,
+    signal,
+    emit
+  }: {
+    input: TInput;
+    system: AnyActorSystem;
+    self: PromiseActorRef<TOutput>;
+    signal: AbortSignal;
+    emit: (emitted: TEmitted) => void;
+  }) => PromiseLike<TOutput>
+): PromiseActorLogic<TOutput, TInput, TEmitted>;
+```
+
+## Parameters
+
+<ParamField path="promiseCreator" type="function" required>
+  A function that returns a Promise. Receives an object with:
+  
+  <ParamField path="input" type="TInput">
+    Data provided to the promise actor when created or invoked.
+  </ParamField>
+  
+  <ParamField path="self" type="PromiseActorRef<TOutput>">
+    Reference to the promise actor itself.
+  </ParamField>
+  
+  <ParamField path="system" type="AnyActorSystem">
+    The actor system to which the promise actor belongs.
+  </ParamField>
+  
+  <ParamField path="signal" type="AbortSignal">
+    An AbortSignal that is aborted when the actor is stopped.
+  </ParamField>
+  
+  <ParamField path="emit" type="(emitted: TEmitted) => void">
+    Function to emit custom events to subscribers.
+  </ParamField>
+</ParamField>
+
+## Returns
+
+<ResponseField name="PromiseActorLogic" type="ActorLogic">
+  Actor logic that can be used with `createActor()` or invoked in a state machine.
+</ResponseField>
+
+## Usage
+
+### Basic Example
+
+```ts
+import { fromPromise, createActor } from 'xstate';
+
+const promiseLogic = fromPromise(async () => {
+  const response = await fetch('https://api.example.com/data');
+  const data = await response.json();
+  return data;
+});
+
+const actor = createActor(promiseLogic);
+
+actor.subscribe((snapshot) => {
+  console.log('Status:', snapshot.status);
+  console.log('Output:', snapshot.output);
+});
+
+actor.start();
+// Status: active
+// ... after promise resolves
+// Status: done
+// Output: { ... data ... }
+```
+
+### With Input
+
+```ts
+import { fromPromise, createActor } from 'xstate';
+
+type Input = { userId: string };
+type Output = { name: string; email: string };
+
+const fetchUser = fromPromise<Output, Input>(async ({ input }) => {
+  const response = await fetch(`/api/users/${input.userId}`);
+  return response.json();
+});
+
+const actor = createActor(fetchUser, {
+  input: { userId: '123' }
+});
+
+actor.subscribe((snapshot) => {
+  if (snapshot.status === 'done') {
+    console.log('User:', snapshot.output);
+    // User: { name: 'John', email: 'john@example.com' }
+  }
+});
+
+actor.start();
+```
+
+### Invoking in a Machine
+
+```ts
+import { setup, fromPromise } from 'xstate';
+
+const fetchData = fromPromise(async ({ input }: { input: { url: string } }) => {
+  const response = await fetch(input.url);
+  return response.json();
+});
+
+const machine = setup({
+  actors: {
+    fetchData
+  }
+}).createMachine({
+  initial: 'loading',
+  states: {
+    loading: {
+      invoke: {
+        src: 'fetchData',
+        input: { url: '/api/data' },
+        onDone: {
+          target: 'success',
+          actions: ({ event }) => {
+            console.log('Data loaded:', event.output);
+          }
+        },
+        onError: {
+          target: 'failure',
+          actions: ({ event }) => {
+            console.error('Failed to load:', event.error);
+          }
+        }
+      }
+    },
+    success: {},
+    failure: {}
+  }
+});
+```
+
+### Using AbortSignal
+
+```ts
+import { fromPromise, createActor } from 'xstate';
+
+const fetchWithAbort = fromPromise(async ({ signal }) => {
+  const response = await fetch('https://api.example.com/data', {
+    signal
+  });
+  return response.json();
+});
+
+const actor = createActor(fetchWithAbort);
+actor.start();
+
+// Stop the actor (aborts the fetch)
+setTimeout(() => {
+  actor.stop();
+}, 1000);
+```
+
+### Emitting Progress Events
+
+```ts
+import { fromPromise, createActor } from 'xstate';
+
+type ProgressEvent = { type: 'progress'; percent: number };
+
+const uploadFile = fromPromise<string, { file: File }, ProgressEvent>(
+  async ({ input, emit }) => {
+    const formData = new FormData();
+    formData.append('file', input.file);
+
+    const xhr = new XMLHttpRequest();
+    
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        const percent = (e.loaded / e.total) * 100;
+        emit({ type: 'progress', percent });
+      }
+    });
+
+    return new Promise((resolve, reject) => {
+      xhr.addEventListener('load', () => resolve(xhr.responseText));
+      xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+      xhr.open('POST', '/upload');
+      xhr.send(formData);
+    });
+  }
+);
+
+const actor = createActor(uploadFile, {
+  input: { file: new File(['content'], 'test.txt') }
+});
+
+actor.on('progress', ({ percent }) => {
+  console.log(`Upload progress: ${percent.toFixed(1)}%`);
+});
+
+actor.subscribe((snapshot) => {
+  if (snapshot.status === 'done') {
+    console.log('Upload complete:', snapshot.output);
+  }
+});
+
+actor.start();
+```
+
+### Error Handling
+
+```ts
+import { fromPromise, createActor } from 'xstate';
+
+const riskyOperation = fromPromise(async ({ input }: { input: { id: string } }) => {
+  const response = await fetch(`/api/items/${input.id}`);
+  
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+  
+  return response.json();
+});
+
+const actor = createActor(riskyOperation, {
+  input: { id: '999' }
+});
+
+actor.subscribe({
+  next: (snapshot) => {
+    if (snapshot.status === 'error') {
+      console.error('Error:', snapshot.error);
+    }
+  },
+  error: (err) => {
+    console.error('Actor error:', err);
+  }
+});
+
+actor.start();
+```
+
+### Dynamic Input from Context
+
+```ts
+import { setup, fromPromise } from 'xstate';
+
+const fetchUser = fromPromise(async ({ input }: { input: { id: string } }) => {
+  const response = await fetch(`/api/users/${input.id}`);
+  return response.json();
+});
+
+const machine = setup({
+  actors: { fetchUser }
+}).createMachine({
+  context: {
+    userId: '123'
+  },
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        FETCH: 'loading'
+      }
+    },
+    loading: {
+      invoke: {
+        src: 'fetchUser',
+        input: ({ context }) => ({
+          id: context.userId
+        }),
+        onDone: 'success',
+        onError: 'failure'
+      }
+    },
+    success: {},
+    failure: {}
+  }
+});
+```
+
+### Chaining Promises
+
+```ts
+import { fromPromise } from 'xstate';
+
+const fetchAndProcess = fromPromise(async ({ input }: { input: { url: string } }) => {
+  // First fetch
+  const response = await fetch(input.url);
+  const data = await response.json();
+  
+  // Process the data
+  const processed = await processData(data);
+  
+  // Additional async operation
+  const result = await saveToDatabase(processed);
+  
+  return result;
+});
+
+async function processData(data: any) {
+  return new Promise((resolve) => {
+    setTimeout(() => resolve({ ...data, processed: true }), 100);
+  });
+}
+
+async function saveToDatabase(data: any) {
+  return fetch('/api/save', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  }).then(r => r.json());
+}
+```
+
+## Snapshot
+
+The promise actor snapshot has the following structure:
+
+```ts
+interface PromiseSnapshot<TOutput, TInput> {
+  status: 'active' | 'done' | 'error' | 'stopped';
+  output: TOutput | undefined;
+  error: unknown;
+  input: TInput | undefined;
+}
+```
+
+### Status Values
+
+- `'active'` - Promise is pending
+- `'done'` - Promise resolved successfully
+- `'error'` - Promise rejected with an error
+- `'stopped'` - Actor was stopped before promise settled
+
+## Behavior
+
+- **One-time execution**: The promise creator is called once when the actor starts
+- **No event handling**: Sending events to promise actors has no effect
+- **Automatic completion**: The actor completes when the promise settles
+- **Abort support**: The provided `signal` is aborted when the actor is stopped
+- **Error propagation**: Promise rejections become error snapshots
+
+## Type Parameters
+
+<ParamField path="TOutput" type="type">
+  The type of the resolved promise value.
+</ParamField>
+
+<ParamField path="TInput" type="type" default="NonReducibleUnknown">
+  The type of the input data.
+</ParamField>
+
+<ParamField path="TEmitted" type="EventObject" default="EventObject">
+  The type of events that can be emitted.
+</ParamField>
+
+## See Also
+
+- [fromCallback](/api/actors/from-callback) - For subscription-based logic
+- [fromObservable](/api/actors/from-observable) - For reactive streams
+- [fromTransition](/api/actors/from-transition) - For reducer-style state
+- [Actors Overview](/api/actors/overview) - Introduction to actors

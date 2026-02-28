@@ -1,122 +1,208 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "XState",
+  "theme": "palm",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#2563eb",
+    "light": "#3b82f6",
+    "dark": "#1e40af"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/statelyai/xstate"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/statelyai/xstate"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "installation",
+              "quickstart"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/state-machines",
+              "concepts/actors",
+              "concepts/states",
+              "concepts/transitions",
+              "concepts/context",
+              "concepts/events"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Guides",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "guides/actions",
+              "guides/guards",
+              "guides/parent-child",
+              "guides/parallel-states",
+              "guides/history-states",
+              "guides/final-states",
+              "guides/delayed-events",
+              "guides/error-handling"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Advanced",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "advanced/typescript",
+              "advanced/testing",
+              "advanced/visualization",
+              "advanced/inspection",
+              "advanced/scxml"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Core API",
             "pages": [
-              "api-reference/introduction"
+              "api/create-machine",
+              "api/create-actor",
+              "api/setup",
+              "api/state",
+              "api/snapshot"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Actions",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/actions/assign",
+              "api/actions/raise",
+              "api/actions/send-to",
+              "api/actions/emit",
+              "api/actions/enqueue-actions",
+              "api/actions/spawn-child",
+              "api/actions/stop-child",
+              "api/actions/cancel",
+              "api/actions/log"
+            ]
+          },
+          {
+            "group": "Guards",
+            "pages": [
+              "api/guards/overview",
+              "api/guards/and",
+              "api/guards/or",
+              "api/guards/not",
+              "api/guards/state-in"
+            ]
+          },
+          {
+            "group": "Actors",
+            "pages": [
+              "api/actors/overview",
+              "api/actors/from-promise",
+              "api/actors/from-callback",
+              "api/actors/from-observable",
+              "api/actors/from-transition"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "api/utilities/wait-for",
+              "api/utilities/to-promise",
+              "api/utilities/state-utils",
+              "api/utilities/simulated-clock"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Integrations",
+        "groups": [
+          {
+            "group": "React",
+            "pages": [
+              "integrations/react/overview",
+              "integrations/react/use-actor",
+              "integrations/react/use-actor-ref",
+              "integrations/react/use-selector",
+              "integrations/react/create-actor-context"
+            ]
+          },
+          {
+            "group": "Vue",
+            "pages": [
+              "integrations/vue/overview",
+              "integrations/vue/use-actor",
+              "integrations/vue/use-selector"
+            ]
+          },
+          {
+            "group": "Svelte",
+            "pages": [
+              "integrations/svelte/overview",
+              "integrations/svelte/use-actor",
+              "integrations/svelte/use-selector"
+            ]
+          },
+          {
+            "group": "Solid",
+            "pages": [
+              "integrations/solid/overview",
+              "integrations/solid/use-actor",
+              "integrations/solid/use-selector"
+            ]
+          },
+          {
+            "group": "XState Store",
+            "pages": [
+              "integrations/store/overview",
+              "integrations/store/create-store",
+              "integrations/store/atoms",
+              "integrations/store/framework-bindings"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Resources",
+        "groups": [
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/toggle",
+              "examples/counter",
+              "examples/traffic-light",
+              "examples/fetch",
+              "examples/timer"
+            ]
+          },
+          {
+            "group": "Migration",
+            "pages": [
+              "migration/v4-to-v5",
+              "migration/breaking-changes"
+            ]
+          },
+          {
+            "group": "Community",
+            "pages": [
+              "community/contributing",
+              "community/support",
+              "community/stately-studio"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

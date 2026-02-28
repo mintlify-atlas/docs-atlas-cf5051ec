@@ -1,0 +1,135 @@
+---
+title: Counter Example
+description: Build a counter that manages numeric state using context
+---
+
+This example shows how to use context to store and update data in a state machine.
+
+## Overview
+
+The counter machine demonstrates:
+- Using **context** to store a count value
+- Using **assign** actions to update context
+- Handling multiple event types
+- Stateless machines (no explicit states)
+
+## Machine Definition
+
+```typescript
+import { assign, createMachine } from 'xstate';
+
+export const counterMachine = createMachine({
+  id: 'counter',
+  context: {
+    count: 0
+  },
+  on: {
+    increment: {
+      actions: assign({
+        count: ({ context }) => context.count + 1
+      })
+    },
+    decrement: {
+      actions: assign({
+        count: ({ context }) => context.count - 1
+      })
+    }
+  }
+});
+```
+
+## Implementation
+
+<Steps>
+
+### Define context
+
+Set the initial context with a `count` property:
+
+```typescript
+context: {
+  count: 0
+}
+```
+
+### Create assign actions
+
+Use `assign()` to update context values:
+
+```typescript
+increment: {
+  actions: assign({
+    count: ({ context }) => context.count + 1
+  })
+}
+```
+
+### Access context in snapshots
+
+Read context from the state snapshot:
+
+```typescript
+counterActor.subscribe((state) => {
+  render(state.context.count);
+});
+```
+
+### Send events to update
+
+Trigger context updates by sending events:
+
+```typescript
+incrementButton.addEventListener('click', () => {
+  counterActor.send({ type: 'increment' });
+});
+```
+
+</Steps>
+
+## Complete Example
+
+```typescript
+import './style.css';
+import { counterMachine } from './counterMachine';
+import { createActor } from 'xstate';
+
+const incrementButton = document.querySelector<HTMLButtonElement>('#increment')!;
+const decrementButton = document.querySelector<HTMLButtonElement>('#decrement')!;
+const outputEl = document.querySelector<HTMLDivElement>('#output')!;
+
+function render(count: number): void {
+  outputEl.innerHTML = `Count is ${count}`;
+}
+
+const counterActor = createActor(counterMachine);
+
+counterActor.subscribe((state) => {
+  render(state.context.count);
+});
+
+counterActor.start();
+
+incrementButton?.addEventListener('click', () => {
+  counterActor.send({ type: 'increment' });
+});
+
+decrementButton?.addEventListener('click', () => {
+  counterActor.send({ type: 'decrement' });
+});
+```
+
+## Key Concepts
+
+- **Context**: Stores extended state data (the count value)
+- **assign()**: Action creator for updating context
+- **Stateless machines**: Machines without explicit states can still respond to events
+- **Immutability**: Context updates create new objects, preserving immutability
+
+## When to Use Context
+
+Use context for:
+- Numeric values (counters, timers)
+- Form data
+- API responses
+- User information
+- Any data that changes over time

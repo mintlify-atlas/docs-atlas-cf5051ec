@@ -1,0 +1,417 @@
+---
+title: fromCallback()
+description: Create actor logic from a callback function for subscriptions and event handling
+---
+
+The `fromCallback()` function creates actor logic from a callback function. This is useful for subscription-based or event-driven logic that can send events back to the parent actor.
+
+## Signature
+
+```ts
+function fromCallback<
+  TEvent extends EventObject,
+  TInput = NonReducibleUnknown,
+  TEmitted extends EventObject = EventObject
+>(
+  callback: ({
+    input,
+    system,
+    self,
+    sendBack,
+    receive,
+    emit
+  }: {
+    input: TInput;
+    system: AnyActorSystem;
+    self: CallbackActorRef<TEvent>;
+    sendBack: (event: TSentEvent) => void;
+    receive: (listener: (event: TEvent) => void) => void;
+    emit: (emitted: TEmitted) => void;
+  }) => (() => void) | void
+): CallbackActorLogic<TEvent, TInput, TEmitted>;
+```
+
+## Parameters
+
+<ParamField path="callback" type="function" required>
+  A function that defines the callback logic. Receives an object with:
+  
+  <ParamField path="input" type="TInput">
+    Data provided to the callback actor when created or invoked.
+  </ParamField>
+  
+  <ParamField path="self" type="CallbackActorRef<TEvent>">
+    Reference to the callback actor itself.
+  </ParamField>
+  
+  <ParamField path="system" type="AnyActorSystem">
+    The actor system to which the callback actor belongs.
+  </ParamField>
+  
+  <ParamField path="sendBack" type="(event: TSentEvent) => void">
+    Function to send events back to the parent actor.
+  </ParamField>
+  
+  <ParamField path="receive" type="(listener: (event: TEvent) => void) => void">
+    Function to register a listener for events received by the actor.
+  </ParamField>
+  
+  <ParamField path="emit" type="(emitted: TEmitted) => void">
+    Function to emit custom events to subscribers.
+  </ParamField>
+  
+  The callback can optionally return a cleanup function that will be called when the actor is stopped.
+</ParamField>
+
+## Returns
+
+<ResponseField name="CallbackActorLogic" type="ActorLogic">
+  Actor logic that can be used with `createActor()` or invoked in a state machine.
+</ResponseField>
+
+## Usage
+
+### Basic Example
+
+```ts
+import { fromCallback, createActor } from 'xstate';
+
+const callbackLogic = fromCallback(({ sendBack }) => {
+  const handler = (event: MouseEvent) => {
+    sendBack({ type: 'CLICK', x: event.clientX, y: event.clientY });
+  };
+  
+  document.addEventListener('click', handler);
+  
+  // Cleanup function
+  return () => {
+    document.removeEventListener('click', handler);
+  };
+});
+
+const actor = createActor(callbackLogic);
+actor.start();
+```
+
+### Receiving Events
+
+```ts
+import { fromCallback, createActor } from 'xstate';
+
+type Event = 
+  | { type: 'LOCK' }
+  | { type: 'UNLOCK' }
+  | { type: 'CLICK'; x: number; y: number };
+
+const callbackLogic = fromCallback<Event>(({ sendBack, receive }) => {
+  let isLocked = false;
+  
+  receive((event) => {
+    if (event.type === 'LOCK') {
+      isLocked = true;
+    } else if (event.type === 'UNLOCK') {
+      isLocked = false;
+    }
+  });
+  
+  const handler = (e: MouseEvent) => {
+    if (!isLocked) {
+      sendBack({ type: 'CLICK', x: e.clientX, y: e.clientY });
+    }
+  };
+  
+  document.addEventListener('click', handler);
+  
+  return () => {
+    document.removeEventListener('click', handler);
+  };
+});
+
+const actor = createActor(callbackLogic);
+actor.start();
+
+actor.send({ type: 'LOCK' });
+// Clicks are now ignored
+
+actor.send({ type: 'UNLOCK' });
+// Clicks are now sent back
+```
+
+### Invoking in a Machine
+
+```ts
+import { setup, fromCallback } from 'xstate';
+
+const websocketLogic = fromCallback<
+  { type: 'WS.MESSAGE'; data: unknown },
+  { url: string }
+>(({ input, sendBack }) => {
+  const ws = new WebSocket(input.url);
+  
+  ws.addEventListener('message', (event) => {
+    sendBack({ type: 'WS.MESSAGE', data: event.data });
+  });
+  
+  ws.addEventListener('open', () => {
+    sendBack({ type: 'WS.OPEN' });
+  });
+  
+  ws.addEventListener('error', () => {
+    sendBack({ type: 'WS.ERROR' });
+  });
+  
+  return () => {
+    ws.close();
+  };
+});
+
+const machine = setup({
+  actors: {
+    websocket: websocketLogic
+  }
+}).createMachine({
+  initial: 'connecting',
+  states: {
+    connecting: {
+      invoke: {
+        src: 'websocket',
+        input: { url: 'wss://example.com/socket' }
+      },
+      on: {
+        'WS.OPEN': 'connected',
+        'WS.ERROR': 'failed'
+      }
+    },
+    connected: {
+      on: {
+        'WS.MESSAGE': {
+          actions: ({ event }) => {
+            console.log('Received:', event.data);
+          }
+        },
+        'WS.ERROR': 'failed'
+      }
+    },
+    failed: {}
+  }
+});
+```
+
+### Interval Timer
+
+```ts
+import { fromCallback, createActor } from 'xstate';
+
+type Event = { type: 'TICK' };
+type Input = { interval: number };
+
+const intervalLogic = fromCallback<Event, Input>(({ input, sendBack }) => {
+  const intervalId = setInterval(() => {
+    sendBack({ type: 'TICK' });
+  }, input.interval);
+  
+  return () => {
+    clearInterval(intervalId);
+  };
+});
+
+const actor = createActor(intervalLogic, {
+  input: { interval: 1000 }
+});
+
+actor.start();
+
+actor.subscribe((snapshot) => {
+  console.log('Actor status:', snapshot.status);
+});
+
+// Stop after 5 seconds
+setTimeout(() => {
+  actor.stop();
+}, 5000);
+```
+
+### Geolocation Tracking
+
+```ts
+import { fromCallback } from 'xstate';
+
+type Event = 
+  | { type: 'POSITION'; coords: GeolocationCoordinates }
+  | { type: 'ERROR'; error: GeolocationPositionError };
+
+const geolocationLogic = fromCallback<Event>(({ sendBack }) => {
+  const watchId = navigator.geolocation.watchPosition(
+    (position) => {
+      sendBack({ type: 'POSITION', coords: position.coords });
+    },
+    (error) => {
+      sendBack({ type: 'ERROR', error });
+    }
+  );
+  
+  return () => {
+    navigator.geolocation.clearWatch(watchId);
+  };
+});
+```
+
+### Resize Observer
+
+```ts
+import { fromCallback } from 'xstate';
+
+type Event = {
+  type: 'RESIZE';
+  width: number;
+  height: number;
+};
+
+type Input = {
+  element: HTMLElement;
+};
+
+const resizeLogic = fromCallback<Event, Input>(({ input, sendBack }) => {
+  const observer = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const { width, height } = entry.contentRect;
+      sendBack({ type: 'RESIZE', width, height });
+    }
+  });
+  
+  observer.observe(input.element);
+  
+  return () => {
+    observer.disconnect();
+  };
+});
+```
+
+### Message Channel
+
+```ts
+import { fromCallback } from 'xstate';
+
+type Event = { type: 'MESSAGE'; data: unknown };
+type Input = { port: MessagePort };
+
+const messageChannelLogic = fromCallback<Event, Input>(
+  ({ input, sendBack, receive }) => {
+    const { port } = input;
+    
+    port.addEventListener('message', (event) => {
+      sendBack({ type: 'MESSAGE', data: event.data });
+    });
+    
+    port.start();
+    
+    receive((event) => {
+      if (event.type === 'SEND') {
+        port.postMessage((event as any).data);
+      }
+    });
+    
+    return () => {
+      port.close();
+    };
+  }
+);
+```
+
+### Emitting Events
+
+```ts
+import { fromCallback, createActor } from 'xstate';
+
+type EmittedEvent = 
+  | { type: 'heartbeat' }
+  | { type: 'metric'; name: string; value: number };
+
+const monitorLogic = fromCallback<never, void, EmittedEvent>(
+  ({ emit }) => {
+    const heartbeatId = setInterval(() => {
+      emit({ type: 'heartbeat' });
+    }, 1000);
+    
+    const metricId = setInterval(() => {
+      emit({ 
+        type: 'metric', 
+        name: 'memory', 
+        value: performance.memory?.usedJSHeapSize ?? 0 
+      });
+    }, 5000);
+    
+    return () => {
+      clearInterval(heartbeatId);
+      clearInterval(metricId);
+    };
+  }
+);
+
+const actor = createActor(monitorLogic);
+
+actor.on('heartbeat', () => {
+  console.log('♥');
+});
+
+actor.on('metric', (event) => {
+  console.log(`${event.name}: ${event.value}`);
+});
+
+actor.start();
+```
+
+## Snapshot
+
+The callback actor snapshot has the following structure:
+
+```ts
+interface CallbackSnapshot<TInput> {
+  status: 'active' | 'stopped';
+  output: undefined;
+  error: undefined;
+  input: TInput;
+}
+```
+
+### Status Values
+
+- `'active'` - Actor is running
+- `'stopped'` - Actor has been stopped
+
+## Behavior
+
+- **Continuous execution**: Callback actors run continuously until stopped
+- **Bidirectional communication**: Can both receive and send events
+- **Cleanup support**: Cleanup function is called when actor is stopped
+- **No output**: Callback actors don't produce a final output value
+- **Event handling**: Can register listeners via `receive()` to handle incoming events
+
+## Type Parameters
+
+<ParamField path="TEvent" type="EventObject">
+  The type of events the actor can receive.
+</ParamField>
+
+<ParamField path="TInput" type="type" default="NonReducibleUnknown">
+  The type of the input data.
+</ParamField>
+
+<ParamField path="TEmitted" type="EventObject" default="EventObject">
+  The type of events that can be emitted.
+</ParamField>
+
+## Best Practices
+
+1. **Always clean up**: Return a cleanup function to remove event listeners, clear intervals, etc.
+2. **Handle errors**: Wrap potentially failing operations in try-catch and send error events
+3. **Type events**: Use discriminated unions for event types
+4. **Avoid memory leaks**: Ensure all subscriptions are properly cleaned up
+5. **Use receive() for control**: Implement control logic by listening to received events
+
+## See Also
+
+- [fromPromise](/api/actors/from-promise) - For one-time async operations
+- [fromObservable](/api/actors/from-observable) - For reactive streams
+- [fromTransition](/api/actors/from-transition) - For reducer-style state
+- [Actors Overview](/api/actors/overview) - Introduction to actors

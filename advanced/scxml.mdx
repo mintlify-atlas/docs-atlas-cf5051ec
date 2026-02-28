@@ -1,0 +1,407 @@
+---
+title: SCXML
+description: SCXML specification support and interoperability in XState
+---
+
+XState is inspired by and compatible with the [SCXML (State Chart XML) specification](https://www.w3.org/TR/scxml/), a W3C standard for state machine notation. This guide covers SCXML support in XState and how to work with SCXML documents.
+
+## What is SCXML?
+
+SCXML is an XML-based markup language for describing state machines. It provides a standardized way to define:
+
+- States and transitions
+- Hierarchical (nested) states
+- Parallel states
+- Actions (entry, exit, transition actions)
+- Guards (conditional logic)
+- Data model (context)
+- External communications
+
+Example SCXML document:
+
+```xml
+<scxml initial="idle" version="1.0" xmlns="http://www.w3.org/2005/07/scxml">
+  <state id="idle">
+    <transition event="START" target="running"/>
+  </state>
+  <state id="running">
+    <transition event="STOP" target="idle"/>
+  </state>
+</scxml>
+```
+
+## Converting SCXML to XState
+
+XState provides the `toMachine()` function in `scxml.ts:607-610` to convert SCXML documents to XState machines:
+
+```typescript
+import { toMachine } from 'xstate/scxml';
+
+const scxmlString = `
+<scxml initial="idle" version="1.0" xmlns="http://www.w3.org/2005/07/scxml">
+  <state id="idle">
+    <transition event="START" target="running"/>
+  </state>
+  <state id="running">
+    <transition event="STOP" target="idle"/>
+  </state>
+</scxml>
+`;
+
+const machine = toMachine(scxmlString);
+
+// Use like any XState machine
+import { createActor } from 'xstate';
+const actor = createActor(machine);
+actor.start();
+```
+
+<Note>
+The `toMachine()` function parses SCXML XML and creates an equivalent XState machine with full TypeScript support.
+</Note>
+
+## Supported SCXML Features
+
+XState supports most SCXML features:
+
+### States
+
+- `<state>` - Basic states
+- `<parallel>` - Parallel states
+- `<final>` - Final states
+- `<history>` - History states (shallow and deep)
+
+```xml
+<scxml initial="active" version="1.0" xmlns="http://www.w3.org/2005/07/scxml">
+  <state id="active">
+    <state id="editing" initial="idle">
+      <state id="idle"/>
+      <state id="typing"/>
+      <history id="hist" type="shallow"/>
+    </state>
+  </state>
+  <final id="done"/>
+</scxml>
+```
+
+### Transitions
+
+- `<transition>` - State transitions
+- `event` attribute - Event-based transitions
+- `target` attribute - Target state(s)
+- `cond` attribute - Conditional transitions (guards)
+- `type="internal"` - Internal transitions
+
+```xml
+<state id="active">
+  <transition event="SUBMIT" target="submitted" cond="_event.data.valid"/>
+  <transition event="CANCEL" target="idle"/>
+</state>
+```
+
+### Data Model
+
+- `<datamodel>` - Context definition
+- `<data>` - Individual data items
+
+```xml
+<scxml initial="counting" version="1.0" xmlns="http://www.w3.org/2005/07/scxml">
+  <datamodel>
+    <data id="count" expr="0"/>
+    <data id="user" expr="null"/>
+  </datamodel>
+  <state id="counting"/>
+</scxml>
+```
+
+This converts to:
+
+```typescript
+const machine = createMachine({
+  context: {
+    count: 0,
+    user: null
+  },
+  // ...
+});
+```
+
+### Executable Content
+
+- `<raise>` - Raise events
+- `<send>` - Send events
+- `<assign>` - Update context
+- `<log>` - Log messages
+- `<cancel>` - Cancel delayed events
+- `<if>`, `<elseif>`, `<else>` - Conditional logic
+
+```xml
+<state id="active">
+  <onentry>
+    <log expr="'Entering active state'"/>
+    <assign location="count" expr="count + 1"/>
+  </onentry>
+  <transition event="NEXT">
+    <if cond="count >= 5">
+      <raise event="DONE"/>
+    <else/>
+      <send event="CONTINUE"/>
+    </if>
+  </transition>
+</state>
+```
+
+### Entry and Exit Actions
+
+- `<onentry>` - Entry actions
+- `<onexit>` - Exit actions
+
+```xml
+<state id="loading">
+  <onentry>
+    <send event="FETCH_DATA"/>
+    <log expr="'Loading data'"/>
+  </onentry>
+  <onexit>
+    <log expr="'Data loaded'"/>
+  </onexit>
+</state>
+```
+
+### Invocations
+
+- `<invoke>` - Invoke child machines
+- `type="scxml"` - SCXML service type
+- `<content>` - Inline SCXML definition
+
+```xml
+<state id="parent">
+  <invoke id="child" type="scxml">
+    <content>
+      <scxml initial="idle" version="1.0" xmlns="http://www.w3.org/2005/07/scxml">
+        <state id="idle"/>
+      </scxml>
+    </content>
+  </invoke>
+</state>
+```
+
+## Implementation Details
+
+The SCXML converter (`scxml.ts:1-611`) handles:
+
+### State ID Sanitization
+
+SCXML state IDs with dots are sanitized (`scxml.ts:26-28`):
+
+```typescript
+// "parent.child" becomes "parent$child"
+function sanitizeStateId(id: string) {
+  return id.replace(/\./g, '$');
+}
+```
+
+### Delay Parsing
+
+SCXML delay expressions support milliseconds and seconds (`scxml.ts:87-124`):
+
+```xml
+<send event="TIMEOUT" delay="1000ms"/>
+<send event="TIMEOUT" delay="1.5s"/>
+<send event="TIMEOUT" delay="500ms"/>
+```
+
+### Event Wildcards
+
+SCXML event patterns are converted to XState wildcards (`scxml.ts:30-46`):
+
+```xml
+<transition event="error.*" target="errorHandler"/>
+```
+
+Becomes:
+
+```typescript
+on: {
+  'error.*': 'errorHandler'
+}
+```
+
+### Guard Expressions
+
+SCXML conditional expressions are evaluated as JavaScript:
+
+```xml
+<transition event="NEXT" cond="count > 5" target="done"/>
+```
+
+Becomes:
+
+```typescript
+on: {
+  NEXT: {
+    guard: ({ context }) => context.count > 5,
+    target: 'done'
+  }
+}
+```
+
+### Special SCXML Guards
+
+SCXML's `In()` function is converted to `stateIn()` guard:
+
+```xml
+<transition event="SUBMIT" cond="In('form.valid')" target="submitted"/>
+```
+
+Becomes:
+
+```typescript
+import { stateIn } from 'xstate';
+
+on: {
+  SUBMIT: {
+    guard: stateIn('#form.valid'),
+    target: 'submitted'
+  }
+}
+```
+
+## Limitations
+
+Some SCXML features are not fully supported:
+
+<Warning>
+**Not Supported:**
+- `<script>` elements
+- `<content>` in `<send>` (only `<param>` is supported)
+- External service types (only `scxml` type)
+- `src` attribute in `<data>` elements
+- `_sessionid` variable
+</Warning>
+
+## Exporting to SCXML
+
+Currently, XState does not provide a built-in SCXML export function. However, you can use the `toDirectedGraph()` utility to generate a graph that could be converted to SCXML:
+
+```typescript
+import { toDirectedGraph } from 'xstate/graph';
+
+const graph = toDirectedGraph(machine);
+
+// Custom function to convert to SCXML
+function toSCXML(graph) {
+  let xml = '<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0">';
+  
+  graph.nodes.forEach(node => {
+    xml += `<state id="${node.id}">`;
+    // Add transitions, actions, etc.
+    xml += '</state>';
+  });
+  
+  xml += '</scxml>';
+  return xml;
+}
+```
+
+## SCXML Compatibility Testing
+
+Test SCXML compatibility:
+
+```typescript
+import { toMachine } from 'xstate/scxml';
+import { createActor } from 'xstate';
+import { describe, it, expect } from 'vitest';
+
+describe('SCXML compatibility', () => {
+  it('should parse and execute SCXML', () => {
+    const scxmlString = `
+      <scxml initial="idle" version="1.0" xmlns="http://www.w3.org/2005/07/scxml">
+        <state id="idle">
+          <transition event="START" target="running"/>
+        </state>
+        <state id="running">
+          <transition event="STOP" target="idle"/>
+        </state>
+      </scxml>
+    `;
+    
+    const machine = toMachine(scxmlString);
+    const actor = createActor(machine);
+    actor.start();
+    
+    expect(actor.getSnapshot().value).toBe('idle');
+    
+    actor.send({ type: 'START' });
+    expect(actor.getSnapshot().value).toBe('running');
+    
+    actor.send({ type: 'STOP' });
+    expect(actor.getSnapshot().value).toBe('idle');
+  });
+});
+```
+
+## Use Cases
+
+### Interoperability
+
+SCXML enables interoperability with other state machine tools:
+
+- Import state machines from SCXML-compatible tools
+- Share machine definitions across platforms
+- Use visual SCXML editors
+
+### Standards Compliance
+
+For industries requiring standards compliance:
+
+- Automotive (ISO 26262)
+- Medical devices (IEC 62304)
+- Aerospace
+
+### Legacy Integration
+
+Migrate existing SCXML-based systems to XState:
+
+```typescript
+import { toMachine } from 'xstate/scxml';
+import { readFileSync } from 'fs';
+
+const scxmlContent = readFileSync('legacy-machine.scxml', 'utf-8');
+const machine = toMachine(scxmlContent);
+
+// Now use with XState's modern features
+const enhancedMachine = machine.provide({
+  actions: {
+    modernAction: () => { /* TypeScript implementation */ }
+  }
+});
+```
+
+## Best Practices
+
+<Accordion title="Use XState native APIs when possible">
+SCXML is useful for interoperability, but XState's native TypeScript API provides better type safety and developer experience.
+</Accordion>
+
+<Accordion title="Validate SCXML documents">
+Use an SCXML validator before converting to ensure compatibility.
+</Accordion>
+
+<Accordion title="Test converted machines thoroughly">
+Some SCXML features may have subtle differences in behavior.
+</Accordion>
+
+<Accordion title="Keep SCXML simple">
+Complex JavaScript expressions in SCXML may not translate perfectly.
+</Accordion>
+
+<Tip>
+If you're starting a new project, use XState's TypeScript API directly. Use SCXML primarily for importing existing machines or ensuring standards compliance.
+</Tip>
+
+## Resources
+
+- [SCXML Specification](https://www.w3.org/TR/scxml/)
+- [SCXML Tutorial](https://www.w3.org/Voice/2013/scxml-irp/)
+- [XState SCXML source code](/workspace/source/packages/core/src/scxml.ts:1-611)

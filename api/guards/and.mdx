@@ -1,0 +1,194 @@
+---
+title: and()
+description: Higher-order guard that requires all guards to evaluate to true
+---
+
+The `and()` function creates a higher-order guard that evaluates to `true` only if all guards passed to it evaluate to `true`.
+
+## Signature
+
+```ts
+function and<
+  TContext extends MachineContext,
+  TExpressionEvent extends EventObject,
+  TArg extends unknown[]
+>(
+  guards: readonly [
+    ...{
+      [K in keyof TArg]: SingleGuardArg<
+        TContext,
+        TExpressionEvent,
+        unknown,
+        TArg[K]
+      >;
+    }
+  ]
+): GuardPredicate<
+  TContext,
+  TExpressionEvent,
+  unknown,
+  NormalizeGuardArgArray<DoNotInfer<TArg>>
+>;
+```
+
+## Parameters
+
+<ParamField path="guards" type="readonly Guard[]" required>
+  An array of guards to evaluate. Each guard can be:
+  - A named guard string (e.g., `'isValid'`)
+  - A guard object with `type` and optional `params`
+  - An inline guard function
+</ParamField>
+
+## Returns
+
+A guard that returns `true` if all provided guards evaluate to `true`, otherwise `false`.
+
+## Usage
+
+### Basic Example
+
+```ts
+import { setup, and } from 'xstate';
+
+const machine = setup({
+  guards: {
+    hasData: ({ context }) => context.data !== null,
+    isValid: ({ context }) => context.isValid
+  }
+}).createMachine({
+  context: {
+    data: null as string | null,
+    isValid: false
+  },
+  on: {
+    SUBMIT: {
+      guard: and(['hasData', 'isValid']),
+      actions: () => {
+        console.log('Both guards passed!');
+      }
+    }
+  }
+});
+```
+
+### Mixing Named and Inline Guards
+
+```ts
+import { setup, and } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isAuthenticated: ({ context }) => context.user !== null
+  }
+}).createMachine({
+  context: {
+    user: null as { role: string } | null,
+    age: 0
+  },
+  on: {
+    ACCESS: {
+      guard: and([
+        'isAuthenticated',
+        ({ context }) => context.age >= 18,
+        ({ context }) => context.user?.role === 'admin'
+      ]),
+      target: 'adminPanel'
+    }
+  }
+});
+```
+
+### With Guard Parameters
+
+```ts
+import { setup, and } from 'xstate';
+
+const machine = setup({
+  guards: {
+    hasMinValue: ({ context }, params: { min: number }) => {
+      return context.value >= params.min;
+    },
+    hasMaxValue: ({ context }, params: { max: number }) => {
+      return context.value <= params.max;
+    }
+  }
+}).createMachine({
+  context: { value: 50 },
+  on: {
+    VALIDATE: {
+      guard: and([
+        { type: 'hasMinValue', params: { min: 0 } },
+        { type: 'hasMaxValue', params: { max: 100 } }
+      ]),
+      target: 'valid'
+    }
+  }
+});
+```
+
+### Nested Composition
+
+```ts
+import { setup, and, or } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isAdmin: ({ context }) => context.role === 'admin',
+    isModerator: ({ context }) => context.role === 'moderator',
+    hasPermission: ({ context }) => context.hasPermission
+  }
+}).createMachine({
+  on: {
+    DELETE: {
+      guard: and([
+        or(['isAdmin', 'isModerator']),
+        'hasPermission'
+      ]),
+      actions: 'deleteItem'
+    }
+  }
+});
+```
+
+## Behavior
+
+- **Short-circuit evaluation**: If any guard returns `false`, remaining guards are not evaluated
+- **Empty array**: An empty array is treated as `true` (all zero guards passed)
+- **Order matters**: Guards are evaluated left-to-right until one returns `false`
+
+## Type Safety
+
+The `and()` function maintains type safety across all guards:
+
+```ts
+type Context = { count: number; isValid: boolean };
+type Event = { type: 'CHECK'; value: number };
+
+const machine = setup({
+  types: {} as {
+    context: Context;
+    events: Event;
+  },
+  guards: {
+    hasCount: ({ context }) => context.count > 0,
+    isValid: ({ context }) => context.isValid
+  }
+}).createMachine({
+  on: {
+    CHECK: {
+      guard: and([
+        'hasCount',
+        'isValid',
+        ({ context, event }) => context.count > event.value
+      ])
+    }
+  }
+});
+```
+
+## See Also
+
+- [or](/api/guards/or) - Logical OR for guards
+- [not](/api/guards/not) - Logical NOT for guards
+- [Guards Overview](/api/guards/overview) - Introduction to guards

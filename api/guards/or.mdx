@@ -1,0 +1,254 @@
+---
+title: or()
+description: Higher-order guard that requires at least one guard to evaluate to true
+---
+
+The `or()` function creates a higher-order guard that evaluates to `true` if any of the guards passed to it evaluate to `true`.
+
+## Signature
+
+```ts
+function or<
+  TContext extends MachineContext,
+  TExpressionEvent extends EventObject,
+  TArg extends unknown[]
+>(
+  guards: readonly [
+    ...{
+      [K in keyof TArg]: SingleGuardArg<
+        TContext,
+        TExpressionEvent,
+        unknown,
+        TArg[K]
+      >;
+    }
+  ]
+): GuardPredicate<
+  TContext,
+  TExpressionEvent,
+  unknown,
+  NormalizeGuardArgArray<DoNotInfer<TArg>>
+>;
+```
+
+## Parameters
+
+<ParamField path="guards" type="readonly Guard[]" required>
+  An array of guards to evaluate. Each guard can be:
+  - A named guard string (e.g., `'isValid'`)
+  - A guard object with `type` and optional `params`
+  - An inline guard function
+</ParamField>
+
+## Returns
+
+A guard that returns `true` if any provided guard evaluates to `true`, otherwise `false`.
+
+## Usage
+
+### Basic Example
+
+```ts
+import { setup, or } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isAdmin: ({ context }) => context.role === 'admin',
+    isModerator: ({ context }) => context.role === 'moderator'
+  }
+}).createMachine({
+  context: {
+    role: 'user' as 'user' | 'admin' | 'moderator'
+  },
+  on: {
+    DELETE: {
+      guard: or(['isAdmin', 'isModerator']),
+      actions: () => {
+        console.log('User has deletion privileges');
+      }
+    }
+  }
+});
+```
+
+### Mixing Named and Inline Guards
+
+```ts
+import { setup, or } from 'xstate';
+
+const machine = setup({
+  guards: {
+    hasSubscription: ({ context }) => context.subscription !== null
+  }
+}).createMachine({
+  context: {
+    subscription: null as string | null,
+    isFreeTrial: false,
+    isPromoUser: false
+  },
+  on: {
+    ACCESS_PREMIUM: {
+      guard: or([
+        'hasSubscription',
+        ({ context }) => context.isFreeTrial,
+        ({ context }) => context.isPromoUser
+      ]),
+      target: 'premiumContent'
+    }
+  }
+});
+```
+
+### Fallback Validation
+
+```ts
+import { setup, or } from 'xstate';
+
+const machine = setup({
+  guards: {
+    hasValidEmail: ({ context }) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(context.email),
+    hasValidPhone: ({ context }) => /^\d{10}$/.test(context.phone)
+  }
+}).createMachine({
+  context: {
+    email: '',
+    phone: ''
+  },
+  on: {
+    SUBMIT: {
+      guard: or(['hasValidEmail', 'hasValidPhone']),
+      target: 'submitted',
+      description: 'Requires at least one valid contact method'
+    },
+    INVALID: {
+      guard: ({ context }) => !context.email && !context.phone,
+      target: 'error'
+    }
+  }
+});
+```
+
+### With Guard Parameters
+
+```ts
+import { setup, or } from 'xstate';
+
+const machine = setup({
+  guards: {
+    hasMinItems: ({ context }, params: { min: number }) => {
+      return context.items.length >= params.min;
+    },
+    isSpecialUser: ({ context }) => context.userType === 'special'
+  }
+}).createMachine({
+  context: {
+    items: [] as string[],
+    userType: 'regular' as 'regular' | 'special'
+  },
+  on: {
+    CHECKOUT: {
+      guard: or([
+        { type: 'hasMinItems', params: { min: 1 } },
+        'isSpecialUser'
+      ]),
+      target: 'checkout'
+    }
+  }
+});
+```
+
+### Permission Checking
+
+```ts
+import { setup, or } from 'xstate';
+
+const machine = setup({
+  guards: {
+    hasEditPermission: ({ context }) => context.permissions.includes('edit'),
+    hasAdminPermission: ({ context }) => context.permissions.includes('admin'),
+    isOwner: ({ context, event }) => context.userId === event.resourceOwnerId
+  }
+}).createMachine({
+  context: {
+    userId: '',
+    permissions: [] as string[]
+  },
+  on: {
+    EDIT_RESOURCE: {
+      guard: or([
+        'hasEditPermission',
+        'hasAdminPermission',
+        'isOwner'
+      ]),
+      actions: 'editResource'
+    }
+  }
+});
+```
+
+### Nested Composition
+
+```ts
+import { setup, or, and } from 'xstate';
+
+const machine = setup({
+  guards: {
+    isPremiumUser: ({ context }) => context.tier === 'premium',
+    hasCredits: ({ context }) => context.credits > 0,
+    isInTrialPeriod: ({ context }) => context.trialDaysLeft > 0
+  }
+}).createMachine({
+  on: {
+    USE_FEATURE: {
+      guard: or([
+        'isPremiumUser',
+        and(['hasCredits', 'isInTrialPeriod'])
+      ]),
+      actions: 'useFeature'
+    }
+  }
+});
+```
+
+## Behavior
+
+- **Short-circuit evaluation**: Once a guard returns `true`, remaining guards are not evaluated
+- **Empty array**: An empty array is treated as `false` (no guards passed)
+- **Order matters**: Guards are evaluated left-to-right until one returns `true`
+- **Performance**: Place most likely conditions first for optimal performance
+
+## Type Safety
+
+The `or()` function maintains type safety across all guards:
+
+```ts
+type Context = { role: string; credits: number };
+type Event = { type: 'ACCESS'; resourceId: string };
+
+const machine = setup({
+  types: {} as {
+    context: Context;
+    events: Event;
+  },
+  guards: {
+    isAdmin: ({ context }) => context.role === 'admin',
+    hasCredits: ({ context }) => context.credits > 0
+  }
+}).createMachine({
+  on: {
+    ACCESS: {
+      guard: or([
+        'isAdmin',
+        'hasCredits',
+        ({ context, event }) => event.resourceId === 'free-resource'
+      ])
+    }
+  }
+});
+```
+
+## See Also
+
+- [and](/api/guards/and) - Logical AND for guards
+- [not](/api/guards/not) - Logical NOT for guards
+- [Guards Overview](/api/guards/overview) - Introduction to guards

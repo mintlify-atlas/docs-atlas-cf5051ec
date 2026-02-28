@@ -1,0 +1,232 @@
+---
+title: cancel
+description: API reference for the cancel action
+---
+
+Cancels a delayed `sendTo(...)` or `raise(...)` action that is waiting to be executed. The canceled action will not send its event or execute, unless the delay has already elapsed before `cancel(...)` is called.
+
+```ts
+import { cancel } from 'xstate';
+```
+
+## Signature
+
+```ts
+function cancel<
+  TContext extends MachineContext,
+  TExpressionEvent extends EventObject,
+  TParams extends ParameterizedObject['params'] | undefined,
+  TEvent extends EventObject
+>(
+  sendId: ResolvableSendId<TContext, TExpressionEvent, TParams, TEvent>
+): CancelAction<TContext, TExpressionEvent, TParams, TEvent>
+```
+
+## Parameters
+
+<ParamField path="sendId" type="string | ResolvableSendId" required>
+  The ID of the `sendTo(...)` or `raise(...)` action to cancel. Can be:
+  - String: the static ID specified in the action's options
+  - Function: expression that receives `ActionArgs` and returns the ID
+</ParamField>
+
+## Returns
+
+<ResponseField name="CancelAction" type="CancelAction">
+  An action function that cancels the scheduled action when executed.
+</ResponseField>
+
+## Examples
+
+### Cancel delayed sendTo
+
+```ts
+import { createMachine, sendTo, cancel } from 'xstate';
+
+const machine = createMachine({
+  on: {
+    SEND_EVENT: {
+      actions: sendTo(
+        'some-actor',
+        { type: 'someEvent' },
+        {
+          id: 'some-id',
+          delay: 1000
+        }
+      )
+    },
+    CANCEL_EVENT: {
+      actions: cancel('some-id')
+    }
+  }
+});
+```
+
+### Cancel delayed raise
+
+```ts
+import { createMachine, raise, cancel } from 'xstate';
+
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        START: 'waiting'
+      }
+    },
+    waiting: {
+      entry: raise(
+        { type: 'TIMEOUT' },
+        { delay: 5000, id: 'timeout' }
+      ),
+      on: {
+        COMPLETE: {
+          target: 'done',
+          actions: cancel('timeout')
+        },
+        TIMEOUT: 'timedOut'
+      }
+    },
+    done: {},
+    timedOut: {}
+  }
+});
+```
+
+### Dynamic cancel ID
+
+```ts
+const machine = createMachine({
+  types: {} as {
+    events:
+      | { type: 'SCHEDULE'; taskId: string }
+      | { type: 'CANCEL'; taskId: string };
+  },
+  on: {
+    SCHEDULE: {
+      actions: raise(
+        ({ event }) => ({
+          type: 'PROCESS',
+          taskId: event.taskId
+        }),
+        {
+          delay: 1000,
+          id: ({ event }) => `task-${event.taskId}`
+        }
+      )
+    },
+    CANCEL: {
+      actions: cancel(({ event }) => `task-${event.taskId}`)
+    }
+  }
+});
+```
+
+### Timeout pattern
+
+```ts
+const machine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        START: 'processing'
+      }
+    },
+    processing: {
+      entry: raise(
+        { type: 'TIMEOUT' },
+        { delay: 3000, id: 'processingTimeout' }
+      ),
+      on: {
+        SUCCESS: {
+          target: 'success',
+          actions: cancel('processingTimeout')
+        },
+        FAILURE: {
+          target: 'failure',
+          actions: cancel('processingTimeout')
+        },
+        TIMEOUT: 'timeout'
+      }
+    },
+    success: {},
+    failure: {},
+    timeout: {}
+  }
+});
+```
+
+### Cancel on state exit
+
+```ts
+const machine = createMachine({
+  initial: 'waiting',
+  states: {
+    waiting: {
+      entry: sendTo(
+        'notificationService',
+        { type: 'NOTIFY' },
+        { delay: 10000, id: 'notification' }
+      ),
+      exit: cancel('notification'),
+      on: {
+        PROCEED: 'active',
+        ABORT: 'cancelled'
+      }
+    },
+    active: {},
+    cancelled: {}
+  }
+});
+```
+
+### Multiple cancellations
+
+```ts
+import { enqueueActions } from 'xstate';
+
+const machine = createMachine({
+  types: {} as {
+    context: { pendingIds: string[] };
+  },
+  context: { pendingIds: [] },
+  on: {
+    SCHEDULE_BATCH: {
+      actions: enqueueActions(({ enqueue }) => {
+        const ids = ['task1', 'task2', 'task3'];
+        ids.forEach((id) => {
+          enqueue.raise(
+            { type: 'PROCESS', id },
+            { delay: 1000, id }
+          );
+        });
+        enqueue.assign({ pendingIds: ids });
+      })
+    },
+    CANCEL_BATCH: {
+      actions: enqueueActions(({ enqueue, context }) => {
+        context.pendingIds.forEach((id) => {
+          enqueue.cancel(id);
+        });
+        enqueue.assign({ pendingIds: [] });
+      })
+    }
+  }
+});
+```
+
+## Notes
+
+<Note>
+  `cancel()` only works with delayed actions that have an `id` specified. If the action has already been executed (the delay has elapsed), `cancel()` will have no effect.
+</Note>
+
+<Tip>
+  Use `cancel()` with `raise()` or `sendTo()` to implement timeout patterns, debouncing, or to clean up scheduled actions when transitioning between states.
+</Tip>
+
+<Warning>
+  Make sure the `id` you pass to `cancel()` matches the `id` used in the original delayed action. Mismatched IDs will not cancel anything.
+</Warning>

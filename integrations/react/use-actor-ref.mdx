@@ -1,0 +1,488 @@
+---
+title: useActorRef
+description: Create an actor reference without subscribing to state changes
+---
+
+The `useActorRef` hook creates an actor from logic and returns a stable actor reference without subscribing to state changes. This is useful when you want to send events to an actor but don't need to re-render when the state changes.
+
+## Type Signature
+
+```typescript
+function useActorRef<TLogic extends AnyActorLogic>(
+  logic: TLogic,
+  options?: ActorOptions<TLogic>,
+  observerOrListener?: 
+    | Observer<SnapshotFrom<TLogic>> 
+    | ((value: SnapshotFrom<TLogic>) => void)
+): Actor<TLogic>
+```
+
+## Parameters
+
+- **`logic`** - The actor logic (machine, promise, callback, etc.) to create an actor from
+- **`options`** *(optional)* - Actor options including:
+  - `input` - Input data for the actor
+  - `systemId` - System ID for the actor
+  - `snapshot` - Initial snapshot for rehydration
+  - `inspect` - Inspector for debugging
+- **`observerOrListener`** *(optional)* - Observer object or listener function to subscribe to state changes without causing re-renders
+
+## Return Value
+
+Returns an actor reference with methods:
+
+- `send(event)` - Send an event to the actor
+- `getSnapshot()` - Get the current snapshot
+- `subscribe(observer)` - Subscribe to state changes
+- `start()` - Start the actor (called automatically)
+- `stop()` - Stop the actor (called automatically on unmount)
+
+## Basic Usage
+
+### Send Events Without Re-rendering
+
+```tsx
+import { useActorRef } from '@xstate/react';
+import { createMachine } from 'xstate';
+
+const loggerMachine = createMachine({
+  context: { logs: [] },
+  on: {
+    LOG: {
+      actions: assign({
+        logs: ({ context, event }) => [...context.logs, event.message]
+      })
+    }
+  }
+});
+
+function LogButton() {
+  // Component doesn't re-render when logs are added
+  const loggerRef = useActorRef(loggerMachine);
+
+  return (
+    <button onClick={() => loggerRef.send({ 
+      type: 'LOG', 
+      message: 'Button clicked' 
+    })}>
+      Log Event
+    </button>
+  );
+}
+```
+
+### Combine with useSelector
+
+```tsx
+import { useActorRef, useSelector } from '@xstate/react';
+import { createMachine, assign } from 'xstate';
+
+const counterMachine = createMachine({
+  context: { count: 0, history: [] },
+  on: {
+    INCREMENT: {
+      actions: assign({
+        count: ({ context }) => context.count + 1,
+        history: ({ context }) => [...context.history, context.count + 1]
+      })
+    }
+  }
+});
+
+function Counter() {
+  const counterRef = useActorRef(counterMachine);
+
+  return (
+    <div>
+      <CountDisplay actorRef={counterRef} />
+      <button onClick={() => counterRef.send({ type: 'INCREMENT' })}
+        Increment
+      </button>
+    </div>
+  );
+}
+
+// Only re-renders when count changes, not when history changes
+function CountDisplay({ actorRef }) {
+  const count = useSelector(actorRef, (state) => state.context.count);
+  
+  return <div>Count: {count}</div>;
+}
+```
+
+## Advanced Usage
+
+### With Observer Callback
+
+```tsx
+import { useActorRef } from '@xstate/react';
+import { createMachine } from 'xstate';
+
+const analyticsMachine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        TRACK: 'tracking'
+      }
+    },
+    tracking: {
+      entry: 'sendAnalytics',
+      on: {
+        DONE: 'idle'
+      }
+    }
+  }
+});
+
+function AnalyticsProvider({ children }) {
+  // Observer doesn't cause re-renders
+  const analyticsRef = useActorRef(
+    analyticsMachine,
+    {},
+    (snapshot) => {
+      console.log('Analytics state:', snapshot.value);
+      // Send to external analytics service
+      if (snapshot.matches('tracking')) {
+        sendToAnalytics(snapshot.context);
+      }
+    }
+  );
+
+  return (
+    <AnalyticsContext.Provider value={analyticsRef}>
+      {children}
+    </AnalyticsContext.Provider>
+  );
+}
+```
+
+### With Observer Object
+
+```tsx
+import { useActorRef } from '@xstate/react';
+import { createMachine } from 'xstate';
+
+const dataStreamMachine = createMachine({
+  context: { data: [] },
+  on: {
+    DATA: {
+      actions: assign({
+        data: ({ context, event }) => [...context.data, event.value]
+      })
+    }
+  }
+});
+
+function DataStream() {
+  const streamRef = useActorRef(
+    dataStreamMachine,
+    {},
+    {
+      next: (snapshot) => {
+        console.log('Data updated:', snapshot.context.data);
+      },
+      error: (error) => {
+        console.error('Stream error:', error);
+      },
+      complete: () => {
+        console.log('Stream completed');
+      }
+    }
+  );
+
+  return (
+    <button onClick={() => streamRef.send({ 
+      type: 'DATA', 
+      value: Date.now() 
+    })}>
+      Add Data Point
+    </button>
+  );
+}
+```
+
+### Parent-Child Actor Communication
+
+```tsx
+import { useActorRef, useSelector } from '@xstate/react';
+import { createMachine, assign } from 'xstate';
+
+const childMachine = createMachine({
+  context: { value: 0 },
+  on: {
+    UPDATE: {
+      actions: assign({
+        value: ({ event }) => event.value
+      })
+    }
+  }
+});
+
+const parentMachine = createMachine({
+  types: {} as {
+    context: { childRef: Actor<typeof childMachine> | null };
+  },
+  context: { childRef: null },
+  initial: 'active',
+  states: {
+    active: {}
+  }
+});
+
+function Parent() {
+  const parentRef = useActorRef(parentMachine);
+  const childRef = useActorRef(childMachine);
+
+  // Store child ref in parent context
+  useEffect(() => {
+    parentRef.send({ type: 'SET_CHILD', childRef });
+  }, [parentRef, childRef]);
+
+  const handleUpdate = () => {
+    childRef.send({ type: 'UPDATE', value: Math.random() });
+  };
+
+  return (
+    <div>
+      <ChildDisplay actorRef={childRef} />
+      <button onClick={handleUpdate}>Update Child</button>
+    </div>
+  );
+}
+
+function ChildDisplay({ actorRef }) {
+  const value = useSelector(actorRef, (state) => state.context.value);
+  return <div>Child value: {value}</div>;
+}
+```
+
+### Imperative Event Sending
+
+```tsx
+import { useActorRef } from '@xstate/react';
+import { useEffect } from 'react';
+import { createMachine } from 'xstate';
+
+const webSocketMachine = createMachine({
+  initial: 'disconnected',
+  states: {
+    disconnected: {
+      on: { CONNECT: 'connecting' }
+    },
+    connecting: {
+      invoke: {
+        src: 'connectWebSocket',
+        onDone: 'connected',
+        onError: 'disconnected'
+      }
+    },
+    connected: {
+      on: {
+        DISCONNECT: 'disconnected',
+        SEND: {
+          actions: 'sendMessage'
+        }
+      }
+    }
+  }
+});
+
+function WebSocketManager() {
+  const wsRef = useActorRef(webSocketMachine);
+
+  useEffect(() => {
+    // Connect on mount
+    wsRef.send({ type: 'CONNECT' });
+
+    // Disconnect on unmount
+    return () => {
+      wsRef.send({ type: 'DISCONNECT' });
+    };
+  }, [wsRef]);
+
+  // Expose ref for other components
+  return (
+    <WebSocketContext.Provider value={wsRef}>
+      {children}
+    </WebSocketContext.Provider>
+  );
+}
+
+function ChatInput() {
+  const wsRef = useContext(WebSocketContext);
+  const [message, setMessage] = useState('');
+
+  const handleSend = () => {
+    wsRef.send({ type: 'SEND', message });
+    setMessage('');
+  };
+
+  return (
+    <div>
+      <input 
+        value={message} 
+        onChange={(e) => setMessage(e.target.value)} 
+      />
+      <button onClick={handleSend}>Send</button>
+    </div>
+  );
+}
+```
+
+### Getting Snapshot Manually
+
+```tsx
+import { useActorRef } from '@xstate/react';
+import { createMachine } from 'xstate';
+
+const formMachine = createMachine({
+  context: { 
+    name: '', 
+    email: '' 
+  },
+  on: {
+    UPDATE: {
+      actions: assign({
+        name: ({ event }) => event.name ?? context.name,
+        email: ({ event }) => event.email ?? context.email
+      })
+    }
+  }
+});
+
+function Form() {
+  const formRef = useActorRef(formMachine);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    
+    // Get current snapshot without subscribing
+    const snapshot = formRef.getSnapshot();
+    console.log('Submitting:', snapshot.context);
+    
+    // Submit form data
+    submitForm(snapshot.context);
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input 
+        onChange={(e) => formRef.send({ 
+          type: 'UPDATE', 
+          name: e.target.value 
+        })} 
+      />
+      <input 
+        onChange={(e) => formRef.send({ 
+          type: 'UPDATE', 
+          email: e.target.value 
+        })} 
+      />
+      <button type="submit">Submit</button>
+    </form>
+  );
+}
+```
+
+## Rehydration and Persistence
+
+```tsx
+import { useActorRef } from '@xstate/react';
+import { createMachine } from 'xstate';
+import { useEffect } from 'react';
+
+const todoMachine = createMachine({
+  context: { todos: [] },
+  on: {
+    ADD_TODO: {
+      actions: assign({
+        todos: ({ context, event }) => [...context.todos, event.todo]
+      })
+    }
+  }
+});
+
+function TodoApp() {
+  // Load persisted snapshot
+  const persistedSnapshot = localStorage.getItem('todoSnapshot');
+  
+  const todoRef = useActorRef(todoMachine, {
+    snapshot: persistedSnapshot 
+      ? JSON.parse(persistedSnapshot) 
+      : undefined
+  });
+
+  // Persist snapshot on changes
+  useEffect(() => {
+    const subscription = todoRef.subscribe((snapshot) => {
+      localStorage.setItem('todoSnapshot', JSON.stringify(
+        todoRef.getPersistedSnapshot()
+      ));
+    });
+
+    return () => subscription.unsubscribe();
+  }, [todoRef]);
+
+  return (
+    <button onClick={() => todoRef.send({ 
+      type: 'ADD_TODO', 
+      todo: { id: Date.now(), text: 'New todo' } 
+    })}>
+      Add Todo
+    </button>
+  );
+}
+```
+
+## Important Notes
+
+- The actor is automatically started when the component mounts
+- The actor is automatically stopped when the component unmounts
+- The actor reference is stable across re-renders
+- Use this hook when you don't need the component to re-render on state changes
+- Combine with `useSelector` for optimized re-renders on specific state slices
+- The observer/listener parameter doesn't cause re-renders
+
+## Performance Benefits
+
+`useActorRef` is more performant than `useActor` when you don't need to subscribe to all state changes:
+
+<CodeGroup>
+```tsx useActor (re-renders on every change)
+import { useActor } from '@xstate/react';
+
+function Component() {
+  const [state, send] = useActor(machine);
+  // Re-renders on EVERY state change
+  return <button onClick={() => send({ type: 'EVENT' })}>Send</button>;
+}
+```
+
+```tsx useActorRef (no re-renders)
+import { useActorRef } from '@xstate/react';
+
+function Component() {
+  const actorRef = useActorRef(machine);
+  // Never re-renders from state changes
+  return <button onClick={() => actorRef.send({ type: 'EVENT' })}>Send</button>;
+}
+```
+
+```tsx useActorRef + useSelector (selective re-renders)
+import { useActorRef, useSelector } from '@xstate/react';
+
+function Component() {
+  const actorRef = useActorRef(machine);
+  const count = useSelector(actorRef, (state) => state.context.count);
+  // Only re-renders when count changes
+  return <button onClick={() => actorRef.send({ type: 'INCREMENT' })}>Count: {count}</button>;
+}
+```
+</CodeGroup>
+
+## See Also
+
+- [useActor](/integrations/react/use-actor) - Create and subscribe to an actor
+- [useSelector](/integrations/react/use-selector) - Subscribe to derived state
+- [createActorContext](/integrations/react/create-actor-context) - Share actors via context

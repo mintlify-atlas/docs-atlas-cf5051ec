@@ -1,0 +1,345 @@
+---
+title: Actors Overview
+description: Understanding actor model and actor logic creators in XState
+---
+
+Actors are independent entities that can receive and send messages, maintain internal state, and spawn other actors. XState provides several actor logic creators for different use cases.
+
+## What are Actors?
+
+In XState, actors are self-contained units of logic that:
+
+- Receive events
+- Maintain their own state (context)
+- Send events to other actors
+- Can be started, stopped, and supervised
+- Communicate exclusively through message passing
+
+```ts
+import { createActor, fromPromise } from 'xstate';
+
+const fetchLogic = fromPromise(async () => {
+  const response = await fetch('https://api.example.com/data');
+  return response.json();
+});
+
+const actor = createActor(fetchLogic);
+actor.subscribe((snapshot) => {
+  console.log(snapshot);
+});
+
+actor.start();
+```
+
+## Actor Types
+
+XState provides four primary actor logic creators:
+
+### Promise Actors
+
+For asynchronous operations that resolve once with a value.
+
+```ts
+import { fromPromise } from 'xstate';
+
+const promiseLogic = fromPromise(async ({ input }) => {
+  const result = await fetch(input.url);
+  return result.json();
+});
+```
+
+[Learn more about fromPromise](/api/actors/from-promise)
+
+### Callback Actors
+
+For subscription-based or event-driven logic.
+
+```ts
+import { fromCallback } from 'xstate';
+
+const callbackLogic = fromCallback(({ sendBack, receive }) => {
+  const handler = (event) => sendBack(event);
+  document.addEventListener('click', handler);
+  
+  return () => {
+    document.removeEventListener('click', handler);
+  };
+});
+```
+
+[Learn more about fromCallback](/api/actors/from-callback)
+
+### Observable Actors
+
+For reactive streams and observables (RxJS compatible).
+
+```ts
+import { fromObservable } from 'xstate';
+import { interval } from 'rxjs';
+
+const observableLogic = fromObservable(() => interval(1000));
+```
+
+[Learn more about fromObservable](/api/actors/from-observable)
+
+### Transition Actors
+
+For reducer-style state management.
+
+```ts
+import { fromTransition } from 'xstate';
+
+const transitionLogic = fromTransition(
+  (state, event) => {
+    if (event.type === 'increment') {
+      return { count: state.count + 1 };
+    }
+    return state;
+  },
+  { count: 0 }
+);
+```
+
+[Learn more about fromTransition](/api/actors/from-transition)
+
+## Creating and Using Actors
+
+### Basic Actor Lifecycle
+
+```ts
+import { createActor, fromPromise } from 'xstate';
+
+const logic = fromPromise(async () => 'Hello!');
+
+// 1. Create actor
+const actor = createActor(logic);
+
+// 2. Subscribe to snapshots
+actor.subscribe((snapshot) => {
+  console.log('Status:', snapshot.status);
+  console.log('Output:', snapshot.output);
+});
+
+// 3. Start actor
+actor.start();
+
+// 4. Eventually stop (if needed)
+// actor.stop();
+```
+
+### Providing Input
+
+All actor types can receive input:
+
+```ts
+import { createActor, fromPromise } from 'xstate';
+
+const logic = fromPromise<string, { name: string }>(async ({ input }) => {
+  return `Hello, ${input.name}!`;
+});
+
+const actor = createActor(logic, {
+  input: { name: 'World' }
+});
+
+actor.start();
+```
+
+### Invoking Actors in Machines
+
+Actors are commonly invoked from state machines:
+
+```ts
+import { setup, fromPromise } from 'xstate';
+
+const fetchUser = fromPromise(async ({ input }: { input: { id: string } }) => {
+  const response = await fetch(`/api/users/${input.id}`);
+  return response.json();
+});
+
+const machine = setup({
+  actors: {
+    fetchUser
+  }
+}).createMachine({
+  initial: 'loading',
+  states: {
+    loading: {
+      invoke: {
+        src: 'fetchUser',
+        input: { id: '123' },
+        onDone: {
+          target: 'success',
+          actions: ({ event }) => {
+            console.log('User:', event.output);
+          }
+        },
+        onError: 'failure'
+      }
+    },
+    success: {},
+    failure: {}
+  }
+});
+```
+
+## Actor Communication
+
+### Sending Events to Parent
+
+```ts
+import { fromCallback } from 'xstate';
+
+const logic = fromCallback(({ sendBack }) => {
+  setTimeout(() => {
+    sendBack({ type: 'TIMEOUT' });
+  }, 1000);
+});
+```
+
+### Receiving Events
+
+```ts
+import { fromCallback } from 'xstate';
+
+const logic = fromCallback(({ receive }) => {
+  receive((event) => {
+    if (event.type === 'PING') {
+      console.log('Received ping!');
+    }
+  });
+});
+```
+
+### Sending Events to Actors
+
+```ts
+import { createActor, fromCallback } from 'xstate';
+
+const logic = fromCallback(({ receive }) => {
+  receive((event) => {
+    console.log('Received:', event.type);
+  });
+});
+
+const actor = createActor(logic);
+actor.start();
+
+actor.send({ type: 'CUSTOM_EVENT' });
+```
+
+## Actor Snapshots
+
+Each actor type produces snapshots with different properties:
+
+### Promise Snapshot
+
+```ts
+interface PromiseSnapshot<TOutput, TInput> {
+  status: 'active' | 'done' | 'error' | 'stopped';
+  output: TOutput | undefined;
+  error: unknown;
+  input: TInput | undefined;
+}
+```
+
+### Callback Snapshot
+
+```ts
+interface CallbackSnapshot<TInput> {
+  status: 'active' | 'stopped';
+  output: undefined;
+  error: undefined;
+  input: TInput;
+}
+```
+
+### Observable Snapshot
+
+```ts
+interface ObservableSnapshot<TContext, TInput> {
+  status: 'active' | 'done' | 'error' | 'stopped';
+  context: TContext | undefined;
+  output: undefined;
+  error: unknown;
+  input: TInput | undefined;
+}
+```
+
+### Transition Snapshot
+
+```ts
+interface TransitionSnapshot<TContext> {
+  status: 'active';
+  context: TContext;
+  output: undefined;
+  error: undefined;
+}
+```
+
+## Actor System
+
+Actors exist within an actor system that manages communication:
+
+```ts
+import { createActor, fromCallback } from 'xstate';
+
+const logic = fromCallback(({ system }) => {
+  // Access the actor system
+  console.log('System:', system);
+});
+
+const actor = createActor(logic);
+actor.start();
+```
+
+## Emitting Custom Events
+
+Actors can emit custom events to subscribers:
+
+```ts
+import { createActor, fromPromise } from 'xstate';
+
+const logic = fromPromise(async ({ emit }) => {
+  emit({ type: 'progress', value: 0.5 });
+  // ... async work
+  emit({ type: 'progress', value: 1.0 });
+  return 'done';
+});
+
+const actor = createActor(logic);
+actor.subscribe({
+  next: (snapshot) => console.log('Snapshot:', snapshot),
+  error: (err) => console.error('Error:', err),
+  complete: () => console.log('Complete')
+});
+
+actor.on('progress', (event) => {
+  console.log('Progress:', event.value);
+});
+
+actor.start();
+```
+
+## Best Practices
+
+1. **Choose the right actor type**:
+   - Use `fromPromise` for one-time async operations
+   - Use `fromCallback` for subscriptions and event listeners
+   - Use `fromObservable` for reactive streams
+   - Use `fromTransition` for reducer-style state management
+
+2. **Clean up resources**: Return cleanup functions from callback actors
+
+3. **Type your actors**: Provide type parameters for type safety
+
+4. **Handle errors**: Subscribe to error events or use onError handlers
+
+5. **Use input for configuration**: Pass initial data via input rather than closures
+
+## See Also
+
+- [fromPromise](/api/actors/from-promise) - Promise-based actors
+- [fromCallback](/api/actors/from-callback) - Callback-based actors
+- [fromObservable](/api/actors/from-observable) - Observable-based actors
+- [fromTransition](/api/actors/from-transition) - Transition-based actors
