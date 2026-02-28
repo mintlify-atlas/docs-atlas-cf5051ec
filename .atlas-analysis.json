@@ -1,0 +1,235 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "XState",
+  "projectDescription": "Actor-based state management and orchestration for complex app logic using state machines and statecharts.",
+  "theme": "palm",
+  "primaryColor": "#2563eb",
+  "lightColor": "#3b82f6",
+  "darkColor": "#1e40af",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/state-machines",
+              "concepts/actors",
+              "concepts/states",
+              "concepts/transitions",
+              "concepts/context",
+              "concepts/events"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/actions",
+              "guides/guards",
+              "guides/parent-child",
+              "guides/parallel-states",
+              "guides/history-states",
+              "guides/final-states",
+              "guides/delayed-events",
+              "guides/error-handling"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/typescript",
+              "advanced/testing",
+              "advanced/visualization",
+              "advanced/inspection",
+              "advanced/scxml"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core API",
+            "pages": [
+              "api/create-machine",
+              "api/create-actor",
+              "api/setup",
+              "api/state",
+              "api/snapshot"
+            ]
+          },
+          {
+            "group": "Actions",
+            "pages": [
+              "api/actions/assign",
+              "api/actions/raise",
+              "api/actions/send-to",
+              "api/actions/emit",
+              "api/actions/enqueue-actions",
+              "api/actions/spawn-child",
+              "api/actions/stop-child",
+              "api/actions/cancel",
+              "api/actions/log"
+            ]
+          },
+          {
+            "group": "Guards",
+            "pages": [
+              "api/guards/overview",
+              "api/guards/and",
+              "api/guards/or",
+              "api/guards/not",
+              "api/guards/state-in"
+            ]
+          },
+          {
+            "group": "Actors",
+            "pages": [
+              "api/actors/overview",
+              "api/actors/from-promise",
+              "api/actors/from-callback",
+              "api/actors/from-observable",
+              "api/actors/from-transition"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "api/utilities/wait-for",
+              "api/utilities/to-promise",
+              "api/utilities/state-utils",
+              "api/utilities/simulated-clock"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Integrations",
+        "groups": [
+          {
+            "group": "React",
+            "pages": [
+              "integrations/react/overview",
+              "integrations/react/use-actor",
+              "integrations/react/use-actor-ref",
+              "integrations/react/use-selector",
+              "integrations/react/create-actor-context"
+            ]
+          },
+          {
+            "group": "Vue",
+            "pages": [
+              "integrations/vue/overview",
+              "integrations/vue/use-actor",
+              "integrations/vue/use-selector"
+            ]
+          },
+          {
+            "group": "Svelte",
+            "pages": [
+              "integrations/svelte/overview",
+              "integrations/svelte/use-actor",
+              "integrations/svelte/use-selector"
+            ]
+          },
+          {
+            "group": "Solid",
+            "pages": [
+              "integrations/solid/overview",
+              "integrations/solid/use-actor",
+              "integrations/solid/use-selector"
+            ]
+          },
+          {
+            "group": "XState Store",
+            "pages": [
+              "integrations/store/overview",
+              "integrations/store/create-store",
+              "integrations/store/atoms",
+              "integrations/store/framework-bindings"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Resources",
+        "groups": [
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/toggle",
+              "examples/counter",
+              "examples/traffic-light",
+              "examples/fetch",
+              "examples/timer"
+            ]
+          },
+          {
+            "group": "Migration",
+            "pages": [
+              "migration/v4-to-v5",
+              "migration/breaking-changes"
+            ]
+          },
+          {
+            "group": "Community",
+            "pages": [
+              "community/contributing",
+              "community/support",
+              "community/stately-studio"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Finite state machines and statecharts",
+    "Actor-based orchestration model",
+    "TypeScript-first with zero dependencies",
+    "Framework integrations (React, Vue, Svelte, Solid)",
+    "Visual modeling with Stately Studio",
+    "SCXML specification support",
+    "Model-based testing utilities",
+    "State machine visualization and inspection"
+  ],
+  "publicApiSurface": [
+    "createMachine",
+    "createActor",
+    "setup",
+    "assign",
+    "raise",
+    "sendTo",
+    "emit",
+    "enqueueActions",
+    "spawnChild",
+    "stopChild",
+    "and",
+    "or",
+    "not",
+    "stateIn",
+    "fromPromise",
+    "fromCallback",
+    "fromObservable",
+    "fromTransition",
+    "waitFor",
+    "toPromise",
+    "useActor (React/Vue/Svelte/Solid)",
+    "useActorRef",
+    "useSelector",
+    "createActorContext (React)",
+    "createStore",
+    "createAtom",
+    "fromStore"
+  ]
+}
